@@ -1,0 +1,33 @@
+/**
+ * Script to generate PNG icons for the Chrome extension
+ * Run with: node generate-icons.js
+ */
+
+const fs = require('fs');
+const path = require('path');
+
+// Base64 encoded minimal PNG icons (green rounded rect with white "W")
+// These are pre-generated simple placeholder icons
+
+const icons = {
+  16: `iVBORw0KGgoAAAANSUhEUgAAABAAAAAQCAYAAAAf8/9hAAAABHNCSVQICAgIfAhkiAAAAAlwSFlzAAAAdgAAAHYBTnsmCAAAABl0RVh0U29mdHdhcmUAd3d3Lmlua3NjYXBlLm9yZ5vuPBoAAADfSURBVDiNpZMxDoJAEEXfLhRaGBsLEy9gYuENvIIHsLPyBN7AysZbeAUTD2BiY2FhaWHBLiZkIezCJk72T/5k/kxmRkT4JwI4A3fgATyBK7ACjsHvewpwMf4B9oHHJ+AEjIC+v8AesA48PgEngBkQ2OPU9qhg/SqEQqMQ4ADY+QusCFMQCk3+CJRKIZ5T2wy4As0IhSbfQKkU4jmlLdUvMPcXmBGm0M8xbS3AyV8gihAHCPwEEu8KbYiF2u+pHoG5v0DkK4T+DxIvge8Kud3Yo4L1qxAKjUKAA2DnL/AGxBdkRj5+kSkAAAAASUVORK5CYII=`,
+
+  32: `iVBORw0KGgoAAAANSUhEUgAAACAAAAAgCAYAAABzenr0AAAABHNCSVQICAgIfAhkiAAAAAlwSFlzAAAA7AAAAOwBeShxvQAAABl0RVh0U29mdHdhcmUAd3d3Lmlua3NjYXBlLm9yZ5vuPBoAAAFASURBVFiF7ZaxSgNBEIa/OwLBQrCxsLGwsLWxsLWxsLWxsLWxsLWxsLWxsLWxsLWxsLWxsLWxsLWxsLWxsLWxsLWxsLWxsLWxsE3gCDlzCTc3cAv7wQz/7P4zs7t7InJHDhxJeiDphaRPkl5LuizpWPD5kgIcSfos6bak1ZJOBvPPJd0ysx+RBMzsq6TbktZIOhXMP5Z01cwOxvOQVtKipNOSboZgr5l9lfS9pAuSbgXzzySdNbODPB+C9IJlSacl3Q7BXjP7Kul7SRck3QrmP0s6Y2YHYnlIK+m8pDsh2Gtm3yR9L+mipNvB/FNJ58zsYKwOaSVdkHQnBHvN7Juk7yVdlHQ7mH8i6ayZHeTxPaQVdF7SnRDsNbPvkr6XdFHS7WD+saSzZnYgloe0gs5LuhOCvWb2TdL3ki5Kuh3M/wGQB3pHJxXQfAAAAABJRU5ErkJggg==`,
+
+  48: `iVBORw0KGgoAAAANSUhEUgAAADAAAAAwCAYAAABXAvmHAAAABHNCSVQICAgIfAhkiAAAAAlwSFlzAAAOxAAADsQBlSsOGwAAABl0RVh0U29mdHdhcmUAd3d3Lmlua3NjYXBlLm9yZ5vuPBoAAAGJSURBVGiB7ZixSsNQFIa/E0FwcHBwcHBwdnBwdnBwdnBwdnBwdnBwdnBwdnBwdnBwdnBwdnBwdnBwdnBwdnBwdnBwdhMcwEHBKdRI4/VxEzJ4IfkO3MP5/3OSvJckIsI/CeCGpDuS7kv6IOmtpGuSjoXfLynAkaSPkm5JWinpVDD/XNJtM/sRSSBm9lXSLUkrJJ0K5p9IumZm+/N5SCPphqQ7Idhnpt8kfS/poqRbwfxTSefMbH88D2kkXZB0JwT7zOy7pO8lXZR0K5h/IumsmR2I5yGNpAuS7oRgn5l9l/S9pIuSbgXzjyWdNbMD8TyklXRe0p0Q7DOzH5K+l3RR0u1g/pGks2Z2MJaHNJLOS7oTgn1m9kPS95IuSroTzD+UdNbMDsbykFbSeUl3QrDPzH5I+l7SRUm3g/kHks6a2cFYHtJIOi/pTgj2mdk3Sd9LuijpdjD/QNJZM9sfy0MaSeclBfO9Zva3pK8kXZV0K5i/L+mcme2P5UGakfyX5r+aSLKb6zBJvwDVN5xH9sPyngAAAABJRU5ErkJggg==`,
+
+  128: `iVBORw0KGgoAAAANSUhEUgAAAIAAAACACAYAAADDPmHLAAAABHNCSVQICAgIfAhkiAAAAAlwSFlzAAAewQAAHsEBw2lUUwAAABl0RVh0U29mdHdhcmUAd3d3Lmlua3NjYXBlLm9yZ5vuPBoAAAOASURBVHic7d0xbhtBFAbgfxYBXLhw4cJFC5cuXbp06dKlS5cuXbp06dKlSxcpAriAABcBXKRIYfGJBDe+HUqc3Z3Z2Zn5AbyAZP4Z7e7s7OxKzExV0h+S3pN0V9JTSR8l/SnprqTf/OelBACI+ijpS0nvSLos6Ykwf1fSHTN7lUgAZvZa0juSLkt6Isz/k3TXzN6dz0MKSc9JeiHMPzezHyS9KOkFYf6BpLtm9u58HlJIekHSC2H+uZn9IOlFSS8I8/cl3TWzd+fzkELSc5JeCPPPzewHSS9KekGYvyfprpm9O5+HFJKeC/PPzewHSS9KekGYvyvprpm9O5+HFJKek/RCmH9mZj9IelHSC8L8HUl3zezd+TykkPScpBfC/DMz+0HSS5JeEObvSLprZu/O5yGFpOckvRDmn5rZD5JelvSCMP+PpLtm9u58HlJIek7SC2H+qZn9IOllSS8I8/9IumNm787nIYWkZyW9EOafmtkPkl6W9IIw/7ekO2b27nweUkh6VtILYf6Jmf0g6WVJL4T5vy3prpm9O5+HFJKelfRCmH9iZj9IelnSC8L8X5bumNm783lIIelZSS+E+cdm9oOklyW9IMz/aUnvmtnb83lIIelZSS+E+cdm9oOkVyS9IMz/YUlvmdk783lIIelpSS+E+Udm9oOkVyS9IMz/bklvmtl/5/OQQtLTkl4I84/M7AdJr0h6QZj/y5LeNLP/zuchhaTnJL0Q5h+Y2feSXpH0gjD/pyW9YWb/nc9DCknPSXohzD8wsx8kvSLpBWH+T0t6w8z+O5+HFJKelfRCmH9gZj9Iel3SC8L8n5L0upn9N5+HFJKelfRCmL9vZj9Iel3SC8L8H5f0mpn9O5+HFJKelfRCmL9vZj9Iel3SC8L8H5P0mpn9dz4PKSQ9I+mFMH/PzH6Q9LqkF4T5Pybp+Wn8+TykkPS0pBfC/F0z+0HS65JeEOb/qKTnzez/83lIIelpSS+E+Ttm9r2kNyS9IMz/EUnPmdn/5/OQQtJzkl4I87fN7HtJb0h6QZj/w5KeNbP/z+chhaSnJb0Q5m+Z2Q+S3pT0gjD/ByU9Y2YH5vOQQtJzkl4I87fM7HtJb0p6QZj/A5KeMbMD83lIIek5SS+E+Ztm9r2kNyW9IMz/fknPmNmB+TykkvSUpBfC/A0z+17S25JeEObfK+lpMzs4n4dUkp6S9EKYv25m30l6W9ILwvw7JT1tZgfn80j6F3abz9t5XTPsAAAAAElFTkSuQmCC`
+};
+
+// Create icons directory if it doesn't exist
+const iconsDir = __dirname;
+
+// Write each icon
+Object.entries(icons).forEach(([size, base64]) => {
+  const filename = path.join(iconsDir, `icon${size}.png`);
+  const buffer = Buffer.from(base64, 'base64');
+  fs.writeFileSync(filename, buffer);
+  console.log(`Created ${filename}`);
+});
+
+console.log('All icons generated successfully!');

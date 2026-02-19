@@ -1,0 +1,374 @@
+/**
+ * WhatsApp BOT Manager - Utility Functions
+ * @version 2.0.0
+ */
+
+const utils = {
+  /**
+   * Memoization cache for expensive operations
+   */
+  _cache: new Map(),
+  _cacheMaxSize: 100,
+
+  /**
+   * Clear utility cache
+   */
+  clearCache() {
+    this._cache.clear();
+  },
+
+  /**
+   * Memoize function results
+   */
+  memoize(fn, keyFn = (...args) => JSON.stringify(args)) {
+    return (...args) => {
+      const key = keyFn(...args);
+      if (this._cache.has(key)) {
+        return this._cache.get(key);
+      }
+      const result = fn(...args);
+      // Limit cache size
+      if (this._cache.size >= this._cacheMaxSize) {
+        const firstKey = this._cache.keys().next().value;
+        this._cache.delete(firstKey);
+      }
+      this._cache.set(key, result);
+      return result;
+    };
+  },
+
+  /**
+   * Show toast notification
+   */
+  toast(message, type = 'info', duration = 3000) {
+    const container = document.getElementById('toast-container');
+    const toast = document.createElement('div');
+    toast.className = `toast ${type}`;
+
+    let icon = 'fa-info-circle';
+    if (type === 'success') icon = 'fa-check-circle';
+    if (type === 'error') icon = 'fa-exclamation-circle';
+    if (type === 'warning') icon = 'fa-exclamation-triangle';
+
+    toast.innerHTML = `<i class="fas ${icon}"></i> ${this.escapeHtml(message)}`;
+    container.appendChild(toast);
+
+    setTimeout(() => {
+      toast.style.animation = 'slideIn 0.3s ease reverse';
+      setTimeout(() => toast.remove(), 300);
+    }, duration);
+  },
+
+  /**
+   * Normalize phone number - converts various formats to standard format
+   * Examples: "+90 533 088 61 08", "++90 533 088 61 08", "5330886108" -> "905330886108"
+   */
+  normalizePhone(phone) {
+    if (!phone) return '';
+
+    // Remove all non-numeric characters
+    let cleaned = phone.replace(/[^\d]/g, '');
+
+    // If starts with multiple zeros, remove them
+    cleaned = cleaned.replace(/^0+/, '');
+
+    // If number is 10 digits and doesn't start with country code, assume Turkey (90)
+    if (cleaned.length === 10 && !cleaned.startsWith('90')) {
+      cleaned = '90' + cleaned;
+    }
+
+    return cleaned;
+  },
+
+  /**
+   * Format phone number
+   */
+  formatPhone(phone) {
+    if (!phone) return '';
+    const cleaned = phone.replace(/\D/g, '');
+
+    // Try to format as international
+    if (cleaned.length >= 10) {
+      const countryCode = cleaned.slice(0, -10);
+      const rest = cleaned.slice(-10);
+      const area = rest.slice(0, 3);
+      const first = rest.slice(3, 6);
+      const last = rest.slice(6);
+
+      if (countryCode) {
+        return `+${countryCode} ${area} ${first} ${last}`;
+      }
+      return `${area} ${first} ${last}`;
+    }
+
+    return phone;
+  },
+
+  /**
+   * Format JID to display format
+   */
+  formatJid(jid) {
+    if (!jid) return '';
+    return jid.split('@')[0].split(':')[0];
+  },
+
+  /**
+   * Format date/time
+   */
+  formatDate(date, format = 'short') {
+    if (!date) return '-';
+
+    const d = new Date(date);
+    if (isNaN(d.getTime())) return '-';
+
+    const now = new Date();
+    const diff = now - d;
+    const oneDay = 24 * 60 * 60 * 1000;
+
+    if (format === 'relative') {
+      if (diff < 60000) return 'Az önce';
+      if (diff < 3600000) return `${Math.floor(diff / 60000)} dk önce`;
+      if (diff < oneDay) return `${Math.floor(diff / 3600000)} saat önce`;
+      if (diff < oneDay * 7) return `${Math.floor(diff / oneDay)} gün önce`;
+    }
+
+    if (format === 'time') {
+      return d.toLocaleTimeString('tr-TR', { hour: '2-digit', minute: '2-digit' });
+    }
+
+    if (format === 'short') {
+      if (diff < oneDay && d.getDate() === now.getDate()) {
+        return d.toLocaleTimeString('tr-TR', { hour: '2-digit', minute: '2-digit' });
+      }
+      return d.toLocaleDateString('tr-TR', { day: '2-digit', month: '2-digit' });
+    }
+
+    return d.toLocaleString('tr-TR', {
+      day: '2-digit',
+      month: '2-digit',
+      year: 'numeric',
+      hour: '2-digit',
+      minute: '2-digit'
+    });
+  },
+
+  /**
+   * Format uptime
+   */
+  formatUptime(seconds) {
+    if (!seconds || seconds < 0) return '-';
+
+    const days = Math.floor(seconds / 86400);
+    const hours = Math.floor((seconds % 86400) / 3600);
+    const minutes = Math.floor((seconds % 3600) / 60);
+
+    const parts = [];
+    if (days > 0) parts.push(`${days}g`);
+    if (hours > 0) parts.push(`${hours}s`);
+    if (minutes > 0) parts.push(`${minutes}dk`);
+
+    return parts.join(' ') || '< 1dk';
+  },
+
+  /**
+   * Format bytes
+   */
+  formatBytes(bytes) {
+    if (!bytes) return '0 B';
+
+    const units = ['B', 'KB', 'MB', 'GB'];
+    let i = 0;
+
+    while (bytes >= 1024 && i < units.length - 1) {
+      bytes /= 1024;
+      i++;
+    }
+
+    return `${bytes.toFixed(1)} ${units[i]}`;
+  },
+
+  /**
+   * Escape HTML
+   */
+  escapeHtml(text) {
+    const div = document.createElement('div');
+    div.textContent = text;
+    return div.innerHTML;
+  },
+
+  /**
+   * Truncate text
+   */
+  truncate(text, maxLength = 50) {
+    if (!text) return '';
+    if (text.length <= maxLength) return text;
+    return text.substring(0, maxLength) + '...';
+  },
+
+  /**
+   * Debounce function
+   */
+  debounce(func, wait) {
+    let timeout;
+    return function executedFunction(...args) {
+      const later = () => {
+        clearTimeout(timeout);
+        func(...args);
+      };
+      clearTimeout(timeout);
+      timeout = setTimeout(later, wait);
+    };
+  },
+
+  /**
+   * Throttle function - limits function calls to once per interval
+   */
+  throttle(func, limit) {
+    let inThrottle;
+    return function executedFunction(...args) {
+      if (!inThrottle) {
+        func.apply(this, args);
+        inThrottle = true;
+        setTimeout(() => inThrottle = false, limit);
+      }
+    };
+  },
+
+  /**
+   * Generate random delay within range
+   */
+  getRandomDelay(min, max) {
+    return Math.floor(Math.random() * (max - min + 1)) + min;
+  },
+
+  /**
+   * Parse recipients from textarea
+   * Handles various phone number formats: +90 533 088 61 08, 5330886108, etc.
+   */
+  parseRecipients(text) {
+    return text
+      .split(/[\n,;]/)
+      .map(line => line.trim())
+      .filter(line => line.length > 0)
+      .map(line => this.normalizePhone(line))
+      .filter(phone => phone.length >= 10 && phone.length <= 15);
+  },
+
+  /**
+   * Create avatar element
+   */
+  createAvatar(name, size = 44) {
+    const initial = (name || '?').charAt(0).toUpperCase();
+    return `<div class="chat-avatar" style="width: ${size}px; height: ${size}px;">${initial}</div>`;
+  },
+
+  /**
+   * Get status color class
+   */
+  getStatusClass(status) {
+    const statusMap = {
+      'active': 'active',
+      'processing': 'active',
+      'paused': 'paused',
+      'completed': 'completed',
+      'done': 'completed',
+      'sent': 'completed',
+      'failed': 'failed',
+      'error': 'failed',
+      'cancelled': 'cancelled',
+      'pending': 'pending',
+      'scheduled': 'pending'
+    };
+    return statusMap[status?.toLowerCase()] || 'pending';
+  },
+
+  /**
+   * Format message preview
+   */
+  formatMessagePreview(message) {
+    if (!message) return '';
+
+    const type = message.type || 'text';
+
+    if (type === 'image') return '📷 Fotoğraf';
+    if (type === 'video') return '📹 Video';
+    if (type === 'audio') return '🎵 Ses';
+    if (type === 'document') return '📄 Belge';
+    if (type === 'sticker') return '🎨 Çıkartma';
+
+    return utils.truncate(message.content || message.message || '', 40);
+  },
+
+  /**
+   * Validate phone number
+   */
+  isValidPhone(phone) {
+    const cleaned = phone.replace(/\D/g, '');
+    return cleaned.length >= 10 && cleaned.length <= 15;
+  },
+
+  /**
+   * Convert to ISO date string for datetime-local input
+   */
+  toLocalISOString(date) {
+    const d = new Date(date);
+    const offset = d.getTimezoneOffset();
+    const local = new Date(d.getTime() - offset * 60000);
+    return local.toISOString().slice(0, 16);
+  },
+
+  /**
+   * Get minimum datetime for scheduling (1 minute from now)
+   */
+  getMinScheduleDate() {
+    const date = new Date();
+    date.setMinutes(date.getMinutes() + 1);
+    return this.toLocalISOString(date);
+  },
+
+  /**
+   * Show/hide element
+   */
+  show(element) {
+    if (typeof element === 'string') {
+      element = document.getElementById(element) || document.querySelector(element);
+    }
+    if (element) element.classList.remove('hidden');
+  },
+
+  hide(element) {
+    if (typeof element === 'string') {
+      element = document.getElementById(element) || document.querySelector(element);
+    }
+    if (element) element.classList.add('hidden');
+  },
+
+  toggle(element, show) {
+    if (show) {
+      this.show(element);
+    } else {
+      this.hide(element);
+    }
+  },
+
+  /**
+   * Set loading state on button
+   */
+  setLoading(button, loading, text = null) {
+    if (typeof button === 'string') {
+      button = document.getElementById(button);
+    }
+    if (!button) return;
+
+    if (loading) {
+      button.disabled = true;
+      button.dataset.originalText = button.innerHTML;
+      button.innerHTML = '<span class="spinner"></span> ' + (text || 'Yükleniyor...');
+    } else {
+      button.disabled = false;
+      if (button.dataset.originalText) {
+        button.innerHTML = button.dataset.originalText;
+      }
+    }
+  }
+};
