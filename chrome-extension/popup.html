@@ -33,7 +33,11 @@
       </div>
 
       <nav class="sidebar-nav">
-        <button class="sidebar-nav-item active" data-tab="chats" title="Sohbetler">
+        <button class="sidebar-nav-item active" data-tab="dashboard" title="Panel">
+          <i class="fas fa-chart-pie"></i>
+          <span>Panel</span>
+        </button>
+        <button class="sidebar-nav-item" data-tab="chats" title="Sohbetler">
           <i class="fas fa-comments"></i>
           <span>Sohbetler</span>
           <span class="nav-badge hidden" id="nav-unread-badge">0</span>
@@ -42,22 +46,12 @@
           <i class="fas fa-paper-plane"></i>
           <span>Gönderim</span>
         </button>
-        <button class="sidebar-nav-item" data-tab="dashboard" title="Panel">
-          <i class="fas fa-chart-pie"></i>
-          <span>Panel</span>
-        </button>
       </nav>
 
       <div class="sidebar-footer">
         <div id="connection-indicator" class="connection-indicator disconnected" title="Bağlantı Durumu">
           <span class="indicator-dot"></span>
         </div>
-        <button id="clear-cache-btn" class="sidebar-settings-btn" title="Cache Temizle">
-          <i class="fas fa-broom"></i>
-        </button>
-        <button id="settings-btn" class="sidebar-settings-btn" title="Ayarlar">
-          <i class="fas fa-cog"></i>
-        </button>
       </div>
     </aside>
 
@@ -66,7 +60,7 @@
       <!-- Header Bar -->
       <header class="header-bar">
         <div class="header-bar-left">
-          <h1 id="page-title">Sohbetler</h1>
+          <h1 id="page-title">Kontrol Paneli</h1>
         </div>
         <div class="header-bar-right">
           <div id="connection-status" class="connection-badge disconnected">
@@ -76,128 +70,11 @@
         </div>
       </header>
 
-      <!-- Settings Panel (Overlay) -->
-      <div id="settings-panel" class="settings-overlay hidden">
-        <div class="settings-modal settings-modal-large">
-          <div class="settings-modal-header">
-            <h3><i class="fas fa-cog"></i> Ayarlar</h3>
-            <button id="close-settings" class="close-btn"><i class="fas fa-times"></i></button>
-          </div>
-          <div class="settings-modal-body">
-            <!-- Settings Tabs -->
-            <div class="settings-tabs">
-              <button class="settings-tab active" data-settings-tab="api">
-                <i class="fas fa-plug"></i> API Bağlantısı
-              </button>
-              <button class="settings-tab" data-settings-tab="server">
-                <i class="fas fa-server"></i> Sunucu Ayarları
-              </button>
-            </div>
-
-            <!-- API Settings Tab -->
-            <div class="settings-tab-content active" id="settings-tab-api">
-              <div class="form-group">
-                <label for="api-url">API URL</label>
-                <input type="text" id="api-url" placeholder="http://localhost:3000/api">
-              </div>
-              <div class="form-group">
-                <label for="api-key">API Key</label>
-                <div class="input-with-icon">
-                  <input type="password" id="api-key" placeholder="API anahtarınızı girin">
-                  <button type="button" class="input-icon-btn" id="toggle-api-key">
-                    <i class="fas fa-eye"></i>
-                  </button>
-                </div>
-              </div>
-              <div class="settings-actions">
-                <button id="test-connection" class="btn btn-secondary">
-                  <i class="fas fa-plug"></i> Test
-                </button>
-                <button id="save-settings" class="btn btn-primary">
-                  <i class="fas fa-save"></i> Kaydet
-                </button>
-              </div>
-            </div>
-
-            <!-- Server Settings Tab -->
-            <div class="settings-tab-content" id="settings-tab-server">
-              <div class="server-settings-loading" id="server-settings-loading">
-                <span class="spinner"></span> Ayarlar yükleniyor...
-              </div>
-              <div class="server-settings-content hidden" id="server-settings-content">
-                <div class="form-group">
-                  <label for="server-timezone"><i class="fas fa-globe"></i> Saat Dilimi</label>
-                  <select id="server-timezone" class="form-select">
-                    <option value="Europe/Istanbul">Europe/Istanbul (Türkiye)</option>
-                    <option value="Europe/London">Europe/London (UK)</option>
-                    <option value="Europe/Berlin">Europe/Berlin (Almanya)</option>
-                    <option value="America/New_York">America/New_York (ABD - Doğu)</option>
-                    <option value="America/Los_Angeles">America/Los_Angeles (ABD - Batı)</option>
-                    <option value="Asia/Dubai">Asia/Dubai (BAE)</option>
-                    <option value="Asia/Tokyo">Asia/Tokyo (Japonya)</option>
-                    <option value="UTC">UTC</option>
-                  </select>
-                </div>
-
-                <div class="form-group">
-                  <label class="checkbox-label">
-                    <input type="checkbox" id="server-auto-read">
-                    <span><i class="fas fa-check-double"></i> Mesajları Otomatik Okundu İşaretle</span>
-                  </label>
-                  <small class="form-hint">Gelen mesajlar otomatik olarak okundu olarak işaretlenir</small>
-                </div>
-
-                <div class="form-group">
-                  <label class="checkbox-label">
-                    <input type="checkbox" id="server-notify">
-                    <span><i class="fas fa-bell"></i> Bildirimleri Al</span>
-                  </label>
-                  <small class="form-hint">Mesaj ve bağlantı bildirimleri</small>
-                </div>
-
-                <div class="form-group">
-                  <label class="checkbox-label">
-                    <input type="checkbox" id="server-call-reject">
-                    <span><i class="fas fa-phone-slash"></i> Aramaları Otomatik Reddet</span>
-                  </label>
-                  <small class="form-hint">Gelen sesli ve görüntülü aramalar otomatik reddedilir</small>
-                </div>
-
-                <div class="form-divider"></div>
-
-                <div class="server-info">
-                  <div class="server-info-item">
-                    <span class="server-info-label"><i class="fas fa-clock"></i> Sunucu Saati</span>
-                    <span class="server-info-value" id="server-time">-</span>
-                  </div>
-                </div>
-
-                <div class="settings-actions">
-                  <button id="refresh-server-settings" class="btn btn-secondary">
-                    <i class="fas fa-sync-alt"></i> Yenile
-                  </button>
-                  <button id="save-server-settings" class="btn btn-primary">
-                    <i class="fas fa-save"></i> Kaydet
-                  </button>
-                </div>
-              </div>
-              <div class="server-settings-error hidden" id="server-settings-error">
-                <i class="fas fa-exclamation-triangle"></i>
-                <p>Sunucu ayarları yüklenemedi</p>
-                <button id="retry-server-settings" class="btn btn-secondary btn-sm">
-                  <i class="fas fa-redo"></i> Tekrar Dene
-                </button>
-              </div>
-            </div>
-          </div>
-        </div>
-      </div>
-
       <!-- Tab Contents -->
       <main class="content-area">
 
         <!-- ========== CHATS TAB (WhatsApp Style) ========== -->
-        <section id="tab-chats" class="tab-content active">
+        <section id="tab-chats" class="tab-content">
           <div class="chats-container">
             <!-- Chats List Panel -->
             <div class="chats-list-panel" id="chats-list-panel">
@@ -519,7 +396,7 @@
         </section>
 
         <!-- ========== DASHBOARD TAB - Full QR Focus ========== -->
-        <section id="tab-dashboard" class="tab-content">
+        <section id="tab-dashboard" class="tab-content active">
           <!-- Not Connected: Full QR View -->
           <div class="dashboard-qr-view" id="dashboard-qr-view">
             <div class="qr-panel">
@@ -559,6 +436,40 @@
                 <div class="instruction-step">
                   <span class="step-num">4</span>
                   <span>QR kodu tarayın</span>
+                </div>
+              </div>
+
+              <!-- API Bağlantı Ayarları -->
+              <div class="qr-api-card" id="qr-api-settings">
+                <button class="qr-api-toggle" id="qr-api-toggle" type="button">
+                  <div class="qr-api-toggle-left">
+                    <i class="fas fa-cog"></i>
+                    <span>API Ayarları</span>
+                  </div>
+                  <i class="fas fa-chevron-down qr-api-chevron" id="qr-api-chevron"></i>
+                </button>
+                <div class="qr-api-body hidden" id="qr-api-body">
+                  <div class="qr-api-field">
+                    <label for="api-url">API URL</label>
+                    <input type="text" id="api-url" placeholder="http://localhost:3000/api" spellcheck="false">
+                  </div>
+                  <div class="qr-api-field">
+                    <label for="api-key">API Key</label>
+                    <div class="qr-api-key-row">
+                      <input type="password" id="api-key" placeholder="API anahtarı">
+                      <button type="button" class="qr-api-eye" id="toggle-api-key" title="Göster/Gizle">
+                        <i class="fas fa-eye"></i>
+                      </button>
+                    </div>
+                  </div>
+                  <div class="qr-api-buttons">
+                    <button id="test-connection" class="btn btn-secondary btn-sm">
+                      <i class="fas fa-plug"></i> Test
+                    </button>
+                    <button id="save-settings" class="btn btn-primary btn-sm">
+                      <i class="fas fa-save"></i> Kaydet
+                    </button>
+                  </div>
                 </div>
               </div>
             </div>
@@ -659,6 +570,64 @@
                 <div class="system-stat">
                   <span class="system-stat-label">Kuyrukta</span>
                   <span class="system-stat-value" id="wa-queue-pending">-</span>
+                </div>
+              </div>
+            </div>
+
+            <!-- Server Settings -->
+            <div class="system-card" id="dashboard-server-settings">
+              <div class="system-card-header">
+                <h4><i class="fas fa-sliders-h"></i> Sunucu Ayarları</h4>
+                <button class="icon-btn-sm" id="refresh-server-settings" title="Yenile">
+                  <i class="fas fa-sync-alt"></i>
+                </button>
+              </div>
+              <div class="server-settings-body">
+                <div class="server-settings-loading" id="dashboard-server-loading">
+                  <span class="spinner"></span> Yükleniyor...
+                </div>
+                <div class="server-settings-content hidden" id="dashboard-server-content">
+                  <div class="server-settings-row">
+                    <div class="server-setting-item">
+                      <label for="server-timezone"><i class="fas fa-globe"></i> Saat Dilimi</label>
+                      <select id="server-timezone" class="server-select">
+                        <option value="Europe/Istanbul">Europe/Istanbul</option>
+                        <option value="Europe/London">Europe/London</option>
+                        <option value="Europe/Berlin">Europe/Berlin</option>
+                        <option value="America/New_York">America/New_York</option>
+                        <option value="America/Los_Angeles">America/Los_Angeles</option>
+                        <option value="Asia/Dubai">Asia/Dubai</option>
+                        <option value="Asia/Tokyo">Asia/Tokyo</option>
+                        <option value="UTC">UTC</option>
+                      </select>
+                    </div>
+                    <div class="server-setting-item server-setting-time">
+                      <span class="server-time-label"><i class="fas fa-clock"></i> Sunucu</span>
+                      <span class="server-time-value" id="server-time">-</span>
+                    </div>
+                  </div>
+                  <div class="server-settings-toggles">
+                    <label class="server-toggle">
+                      <input type="checkbox" id="server-auto-read">
+                      <span class="server-toggle-label"><i class="fas fa-check-double"></i> Otomatik Okundu</span>
+                    </label>
+                    <label class="server-toggle">
+                      <input type="checkbox" id="server-notify">
+                      <span class="server-toggle-label"><i class="fas fa-bell"></i> Bildirimler</span>
+                    </label>
+                    <label class="server-toggle">
+                      <input type="checkbox" id="server-call-reject">
+                      <span class="server-toggle-label"><i class="fas fa-phone-slash"></i> Arama Reddet</span>
+                    </label>
+                    <button id="save-server-settings" class="btn btn-primary btn-sm server-save-btn">
+                      <i class="fas fa-save"></i> Kaydet
+                    </button>
+                  </div>
+                </div>
+                <div class="server-settings-error hidden" id="dashboard-server-error">
+                  <i class="fas fa-exclamation-triangle"></i>
+                  <span>Yüklenemedi</span>
+                  <button id="retry-server-settings" class="btn btn-secondary btn-sm">Tekrar</button>
                 </div>
               </div>
             </div>

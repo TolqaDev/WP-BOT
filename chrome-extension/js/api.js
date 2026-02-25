@@ -711,14 +711,6 @@ class WhatsAppAPI {
     });
   }
 
-  /**
-   * Delete a message
-   */
-  async deleteMessage(jid, messageId, forEveryone = true) {
-    return this.request(`/messages/${encodeURIComponent(jid)}/${encodeURIComponent(messageId)}?forEveryone=${forEveryone}`, {
-      method: 'DELETE'
-    });
-  }
 
   /**
    * Get chat stats
@@ -877,15 +869,6 @@ class WhatsAppAPI {
     return this.request(`/bulk/job/${jobId}`, { method: 'DELETE' });
   }
 
-  /**
-   * Get bulk job details with all items
-   */
-  async getBulkJobDetails(jobId) {
-    return this.request(`/bulk/status/${jobId}/detailed`);
-  }
-
-  /**
-   * Delete a chat
 
   /**
    * Clear completed bulk jobs
@@ -920,43 +903,6 @@ class WhatsAppAPI {
    */
   async getStats() {
     return this.request('/stats');
-  }
-
-  /**
-   * Get system stats
-   */
-  async getSystemStats() {
-    return this.request('/stats/system');
-  }
-
-  /**
-   * Get WhatsApp stats
-   */
-  async getWhatsAppStats() {
-    return this.request('/stats/whatsapp');
-  }
-
-  /**
-   * Get queue stats
-   */
-  async getQueueStats() {
-    return this.request('/stats/queue');
-  }
-
-  // ==================== CACHE MANAGEMENT ====================
-
-  /**
-   * Clear server cache and free memory
-   */
-  async clearCache() {
-    return this.request('/cache/clear', { method: 'POST' });
-  }
-
-  /**
-   * Get cache statistics
-   */
-  async getCacheStats() {
-    return this.request('/cache/stats');
   }
 }
 

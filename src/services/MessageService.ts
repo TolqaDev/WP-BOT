@@ -404,44 +404,6 @@ class MessageService {
   }
 
   /**
-   * Get message history (sync version - local only for backward compatibility)
-   */
-  public getMessageHistory(jid: string, limit = 50, page = 1): {
-    messages: IncomingMessage[];
-    total: number;
-    page: number;
-    totalPages: number;
-  } {
-    // Check for group JID
-    if (this.isGroupJid(jid)) {
-      return {
-        messages: [],
-        total: 0,
-        page: 1,
-        totalPages: 0,
-      };
-    }
-
-    const formattedJid = this.formatJid(jid);
-    const history = this.messageHistory.get(formattedJid) || [];
-
-    // Sort by timestamp descending (newest first)
-    const sorted = [...history].sort((a, b) => b.timestamp.getTime() - a.timestamp.getTime());
-
-    const total = sorted.length;
-    const totalPages = Math.ceil(total / limit);
-    const startIndex = (page - 1) * limit;
-    const messages = sorted.slice(startIndex, startIndex + limit);
-
-    return {
-      messages,
-      total,
-      page,
-      totalPages,
-    };
-  }
-
-  /**
    * Get all chats with filtering, pagination, and sorting
    * Combines local cache with WhatsApp store data
    */
@@ -466,10 +428,14 @@ class MessageService {
     try {
       const storeChats = whatsAppService.getChatsFromStore();
       if (storeChats && Array.isArray(storeChats)) {
-        // It's a promise, we need to handle it differently
+        for (const chat of storeChats) {
+          if (!this.isGroupJid(chat.jid)) {
+            chatMap.set(chat.jid, chat);
+          }
+        }
       }
     } catch {
-      // Store might return a promise, handle in async version
+      logger.debug('Store sohbetleri alınamadı');
     }
 
     // Add local chats
@@ -627,31 +593,6 @@ class MessageService {
   }
 
   /**
-   * Update chat metadata
-   */
-  public updateChatMetadata(jid: string, updates: Partial<{
-    isArchived: boolean;
-    isPinned: boolean;
-    isMuted: boolean;
-  }>): void {
-    if (this.isGroupJid(jid)) {
-      return;
-    }
-
-    const formattedJid = this.formatJid(jid);
-    const metadata = this.chatMetadata.get(formattedJid) || {
-      name: '',
-      unreadCount: 0,
-      isArchived: false,
-      isPinned: false,
-      isMuted: false,
-    };
-
-    Object.assign(metadata, updates);
-    this.chatMetadata.set(formattedJid, metadata);
-  }
-
-  /**
    * Check if number is on WhatsApp
    */
   public async isOnWhatsApp(phone: string): Promise<ContactInfo | null> {
@@ -688,109 +629,6 @@ class MessageService {
     }, duration);
   }
 
-  /**
-   * Send recording indicator
-   */
-  public async sendRecording(jid: string, duration = 3000): Promise<void> {
-    if (this.isGroupJid(jid)) {
-      throw new Error('Grup sohbetleri desteklenmiyor');
-    }
-
-    await whatsAppService.sendPresenceUpdate(jid, 'recording');
-
-    setTimeout(async () => {
-      try {
-        await whatsAppService.sendPresenceUpdate(jid, 'paused');
-      } catch {
-        // Ignore errors
-      }
-    }, duration);
-  }
-
-  /**
-   * Delete a message
-   */
-  public async deleteMessage(jid: string, messageId: string, forEveryone = false): Promise<SendMessageResult> {
-    if (this.isGroupJid(jid)) {
-      return {
-        success: false,
-        error: 'Grup sohbetleri desteklenmiyor',
-      };
-    }
-
-    const result = await whatsAppService.deleteMessage(jid, messageId, forEveryone);
-
-    // Remove from local history if successful
-    if (result.success) {
-      const formattedJid = this.formatJid(jid);
-      const history = this.messageHistory.get(formattedJid);
-      if (history) {
-        const index = history.findIndex(m => m.id === messageId);
-        if (index !== -1) {
-          history.splice(index, 1);
-        }
-      }
-    }
-
-    return result;
-  }
-
-  /**
-   * Archive/Unarchive chat
-   */
-  public async archiveChat(jid: string, archive: boolean): Promise<void> {
-    if (this.isGroupJid(jid)) {
-      throw new Error('Grup sohbetleri desteklenmiyor');
-    }
-
-    await whatsAppService.archiveChat(jid, archive);
-    this.updateChatMetadata(jid, { isArchived: archive });
-  }
-
-  /**
-   * Pin/Unpin chat
-   */
-  public async pinChat(jid: string, pin: boolean): Promise<void> {
-    if (this.isGroupJid(jid)) {
-      throw new Error('Grup sohbetleri desteklenmiyor');
-    }
-
-    await whatsAppService.pinChat(jid, pin);
-    this.updateChatMetadata(jid, { isPinned: pin });
-  }
-
-  /**
-   * Mute/Unmute chat
-   */
-  public async muteChat(jid: string, mute: boolean, duration?: number): Promise<void> {
-    if (this.isGroupJid(jid)) {
-      throw new Error('Grup sohbetleri desteklenmiyor');
-    }
-
-    await whatsAppService.muteChat(jid, mute, duration);
-    this.updateChatMetadata(jid, { isMuted: mute });
-  }
-
-  public clearHistory(jid?: string): void {
-    if (jid) {
-      if (this.isGroupJid(jid)) {
-        return;
-      }
-      const formattedJid = this.formatJid(jid);
-      this.messageHistory.delete(formattedJid);
-      this.chatMetadata.delete(formattedJid);
-      logger.info({ jid: formattedJid }, 'Sohbet geçmişi temizlendi');
-    } else {
-      // Clear only non-group chats
-      for (const jid of this.messageHistory.keys()) {
-        if (!this.isGroupJid(jid)) {
-          this.messageHistory.delete(jid);
-          this.chatMetadata.delete(jid);
-        }
-      }
-      logger.info('Tüm sohbet geçmişi temizlendi');
-    }
-  }
 
   /**
    * Get chat statistics

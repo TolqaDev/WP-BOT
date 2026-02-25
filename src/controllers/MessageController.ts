@@ -21,7 +21,7 @@ export class MessageController {
       const payload = req.body as SendMessagePayload;
 
       // Validation
-      if (!payload.jid || typeof payload.jid !== 'string') {
+      if (!payload.jid) {
         res.status(400).json(
           ResponseFormatter.badRequest('jid alanı zorunludur ve string olmalıdır')
         );
@@ -40,7 +40,7 @@ export class MessageController {
 
       // Validate content based on type
       if (type === 'text') {
-        if (!payload.message || typeof payload.message !== 'string') {
+        if (!payload.message) {
           res.status(400).json(
             ResponseFormatter.badRequest('Text mesaj için message alanı zorunludur')
           );
@@ -95,7 +95,6 @@ export class MessageController {
       const jid = req.params.jid as string;
       const limit = parseInt(req.query.limit as string) || 50;
       const page = parseInt(req.query.page as string) || 1;
-      const source = req.query.source as string || 'combined'; // 'local', 'store', 'combined'
 
       if (!jid) {
         res.status(400).json(
@@ -188,35 +187,6 @@ export class MessageController {
     }
   }
 
-  /**
-   * Clear message history
-   * DELETE /api/messages/history/:jid?
-   */
-  public clearHistory(req: Request, res: Response): void {
-    try {
-      const jid = req.params.jid as string | undefined;
-
-      if (jid && (jid.includes('@g.us') || jid.includes('@broadcast'))) {
-        res.status(400).json(
-          ResponseFormatter.badRequest('Grup sohbetleri desteklenmiyor')
-        );
-        return;
-      }
-
-      messageService.clearHistory(jid);
-
-      res.status(200).json(
-        ResponseFormatter.noContent(
-          jid ? `${jid} için geçmiş temizlendi` : 'Tüm geçmiş temizlendi'
-        )
-      );
-    } catch (error) {
-      logger.error({ error }, 'Geçmiş temizlenemedi');
-      res.status(500).json(
-        ResponseFormatter.serverError('Geçmiş temizlenemedi')
-      );
-    }
-  }
 
   /**
    * Schedule a message
@@ -227,7 +197,7 @@ export class MessageController {
       const payload = req.body as ScheduleMessagePayload;
 
       // Validation
-      if (!payload.jid || typeof payload.jid !== 'string') {
+      if (!payload.jid) {
         res.status(400).json(
           ResponseFormatter.badRequest('jid alanı zorunludur')
         );
@@ -570,197 +540,6 @@ export class MessageController {
     }
   }
 
-  /**
-   * Delete a message
-   * DELETE /api/messages/:jid/:messageId
-   */
-  public async deleteMessage(req: Request, res: Response): Promise<void> {
-    try {
-      const jid = req.params.jid as string;
-      const messageId = req.params.messageId as string;
-      const forEveryone = req.query.forEveryone === 'true';
-
-      if (!jid || !messageId) {
-        res.status(400).json(
-          ResponseFormatter.badRequest('jid ve messageId parametreleri zorunludur')
-        );
-        return;
-      }
-
-      if (jid.includes('@g.us') || jid.includes('@broadcast')) {
-        res.status(400).json(
-          ResponseFormatter.badRequest('Grup sohbetleri desteklenmiyor')
-        );
-        return;
-      }
-
-      if (!whatsAppService.isReady()) {
-        res.status(503).json(
-          ResponseFormatter.error('WhatsApp bağlantısı yok', 'Servis kullanılamıyor')
-        );
-        return;
-      }
-
-      const result = await messageService.deleteMessage(jid, messageId, forEveryone);
-
-      if (result.success) {
-        res.status(200).json(
-          ResponseFormatter.success(
-            { jid, messageId, forEveryone },
-            'Mesaj silindi'
-          )
-        );
-      } else {
-        res.status(500).json(
-          ResponseFormatter.error(result.error || 'Mesaj silinemedi')
-        );
-      }
-    } catch (error) {
-      logger.error({ error }, 'Mesaj silinemedi');
-      res.status(500).json(
-        ResponseFormatter.serverError('Mesaj silinemedi')
-      );
-    }
-  }
-
-  /**
-   * Archive/Unarchive a chat
-   * POST /api/messages/archive/:jid
-   */
-  public async archiveChat(req: Request, res: Response): Promise<void> {
-    try {
-      const jid = req.params.jid as string;
-      const archive = req.body.archive !== false; // Default true
-
-      if (!jid) {
-        res.status(400).json(
-          ResponseFormatter.badRequest('jid parametresi zorunludur')
-        );
-        return;
-      }
-
-      if (jid.includes('@g.us') || jid.includes('@broadcast')) {
-        res.status(400).json(
-          ResponseFormatter.badRequest('Grup sohbetleri desteklenmiyor')
-        );
-        return;
-      }
-
-      if (!whatsAppService.isReady()) {
-        res.status(503).json(
-          ResponseFormatter.error('WhatsApp bağlantısı yok', 'Servis kullanılamıyor')
-        );
-        return;
-      }
-
-      await messageService.archiveChat(jid, archive);
-
-      res.status(200).json(
-        ResponseFormatter.success(
-          { jid, archived: archive },
-          archive ? 'Sohbet arşivlendi' : 'Sohbet arşivden çıkarıldı'
-        )
-      );
-    } catch (error) {
-      logger.error({ error }, 'Arşiv işlemi başarısız');
-      res.status(500).json(
-        ResponseFormatter.serverError('Arşiv işlemi başarısız')
-      );
-    }
-  }
-
-  /**
-   * Pin/Unpin a chat
-   * POST /api/messages/pin/:jid
-   */
-  public async pinChat(req: Request, res: Response): Promise<void> {
-    try {
-      const jid = req.params.jid as string;
-      const pin = req.body.pin !== false; // Default true
-
-      if (!jid) {
-        res.status(400).json(
-          ResponseFormatter.badRequest('jid parametresi zorunludur')
-        );
-        return;
-      }
-
-      if (jid.includes('@g.us') || jid.includes('@broadcast')) {
-        res.status(400).json(
-          ResponseFormatter.badRequest('Grup sohbetleri desteklenmiyor')
-        );
-        return;
-      }
-
-      if (!whatsAppService.isReady()) {
-        res.status(503).json(
-          ResponseFormatter.error('WhatsApp bağlantısı yok', 'Servis kullanılamıyor')
-        );
-        return;
-      }
-
-      await messageService.pinChat(jid, pin);
-
-      res.status(200).json(
-        ResponseFormatter.success(
-          { jid, pinned: pin },
-          pin ? 'Sohbet sabitlendi' : 'Sohbet sabitlemesi kaldırıldı'
-        )
-      );
-    } catch (error) {
-      logger.error({ error }, 'Sabitleme işlemi başarısız');
-      res.status(500).json(
-        ResponseFormatter.serverError('Sabitleme işlemi başarısız')
-      );
-    }
-  }
-
-  /**
-   * Mute/Unmute a chat
-   * POST /api/messages/mute/:jid
-   */
-  public async muteChat(req: Request, res: Response): Promise<void> {
-    try {
-      const jid = req.params.jid as string;
-      const mute = req.body.mute !== false; // Default true
-      const duration = req.body.duration ? parseInt(req.body.duration) : undefined;
-
-      if (!jid) {
-        res.status(400).json(
-          ResponseFormatter.badRequest('jid parametresi zorunludur')
-        );
-        return;
-      }
-
-      if (jid.includes('@g.us') || jid.includes('@broadcast')) {
-        res.status(400).json(
-          ResponseFormatter.badRequest('Grup sohbetleri desteklenmiyor')
-        );
-        return;
-      }
-
-      if (!whatsAppService.isReady()) {
-        res.status(503).json(
-          ResponseFormatter.error('WhatsApp bağlantısı yok', 'Servis kullanılamıyor')
-        );
-        return;
-      }
-
-      await messageService.muteChat(jid, mute, duration);
-
-      res.status(200).json(
-        ResponseFormatter.success(
-          { jid, muted: mute, duration },
-          mute ? 'Sohbet sessize alındı' : 'Sohbet sessizden çıkarıldı'
-        )
-      );
-    } catch (error) {
-      logger.error({ error }, 'Sessiz işlemi başarısız');
-      res.status(500).json(
-        ResponseFormatter.serverError('Sessiz işlemi başarısız')
-      );
-    }
-  }
 
   /**
    * Get chat statistics
@@ -807,6 +586,17 @@ export class MessageController {
     res.setHeader('X-Accel-Buffering', 'no');
 
     const jidFilter = req.query.jid as string | undefined;
+    let isClosed = false;
+
+    const safeWrite = (data: string): void => {
+      if (!isClosed && !res.writableEnded) {
+        try {
+          res.write(data);
+        } catch {
+          isClosed = true;
+        }
+      }
+    };
 
     logger.info({ jidFilter }, 'SSE mesaj stream başlatıldı');
 
@@ -814,7 +604,7 @@ export class MessageController {
     const state = whatsAppService.getState();
     const session = whatsAppService.getSessionInfo();
 
-    res.write(`data: ${JSON.stringify({
+    safeWrite(`data: ${JSON.stringify({
       type: 'init',
       isConnected: state.isConnected,
       session: session || null,
@@ -833,7 +623,7 @@ export class MessageController {
         return;
       }
 
-      res.write(`data: ${JSON.stringify({
+      safeWrite(`data: ${JSON.stringify({
         type: 'message',
         data: message,
         timestamp: new Date().toISOString(),
@@ -842,7 +632,7 @@ export class MessageController {
 
     // Message sent handler
     const messageSentHandler = (result: any) => {
-      res.write(`data: ${JSON.stringify({
+      safeWrite(`data: ${JSON.stringify({
         type: 'sent',
         data: result,
         timestamp: new Date().toISOString(),
@@ -851,7 +641,7 @@ export class MessageController {
 
     // Connection handler
     const connectedHandler = (session: any) => {
-      res.write(`data: ${JSON.stringify({
+      safeWrite(`data: ${JSON.stringify({
         type: 'connected',
         session,
         timestamp: new Date().toISOString(),
@@ -870,7 +660,7 @@ export class MessageController {
         return;
       }
 
-      res.write(`data: ${JSON.stringify({
+      safeWrite(`data: ${JSON.stringify({
         type: 'disconnected',
         reason,
         isConnecting: currentState.isConnecting,
@@ -880,7 +670,7 @@ export class MessageController {
 
     // Reconnecting handler
     const reconnectingHandler = (data: any) => {
-      res.write(`data: ${JSON.stringify({
+      safeWrite(`data: ${JSON.stringify({
         type: 'reconnecting',
         ...data,
         timestamp: new Date().toISOString(),
@@ -896,7 +686,7 @@ export class MessageController {
 
     // Heartbeat to keep connection alive
     const heartbeatInterval = setInterval(() => {
-      res.write(`data: ${JSON.stringify({
+      safeWrite(`data: ${JSON.stringify({
         type: 'heartbeat',
         timestamp: new Date().toISOString(),
       })}\n\n`);
@@ -904,6 +694,7 @@ export class MessageController {
 
     // Cleanup function
     const cleanup = () => {
+      isClosed = true;
       clearInterval(heartbeatInterval);
       whatsAppService.removeListener('message', messageHandler);
       whatsAppService.removeListener('messageSent', messageSentHandler);

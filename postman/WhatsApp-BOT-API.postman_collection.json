@@ -2,9 +2,9 @@
   "info": {
     "_postman_id": "whatsapp-bot-api-collection",
     "name": "WhatsApp BOT API",
-    "description": "WhatsApp BOT API v2.0 - Baileys ile oluşturulmuş MVC mimarisinde TypeScript API\n\n## 🚀 Özellikler\n- QR ile oturum açma (SSE desteği)\n- Mesaj gönderme/alma (text, image, video, audio, document)\n- Toplu mesaj (gelişmiş kuyruk sistemi)\n- Zamanlanmış mesajlar\n- Otomatik arama reddi\n- **Session Persistence**: PM2/sunucu yeniden başlatıldığında otomatik bağlanma\n- **Cache Management**: Bellek yönetimi ve optimizasyon\n\n## 🔒 Güvenlik\nTüm API endpoint'leri (health hariç) API Key gerektirir.\nHeader: `X-API-Key: your_api_key` veya `Authorization: Bearer your_api_key`\n\n## 🏁 Başlangıç\n1. Sunucuyu başlatın: `npm run dev` veya `pm2 start`\n2. API Key'i environment'a ekleyin\n3. QR endpoint'ini çağırın\n4. WhatsApp'tan QR'ı tarayın\n5. Mesaj göndermeye başlayın!\n\n## 📊 Session Yönetimi\n- **Logout endpoint'i**: Oturumu tamamen siler, tekrar QR gerekir\n- **PM2/Sunucu restart**: Oturum korunur, otomatik bağlanır\n- **hasSession**: Status endpoint'inde kayıtlı oturum olup olmadığını gösterir\n\n## ⚡ Performans\n- Request ID ile izleme\n- Gelişmiş rate limiting\n- SSE timeout ve reconnection yönetimi\n- Cache optimizasyonu",
+    "description": "WhatsApp BOT API v2.1 - Baileys ile oluşturulmuş MVC mimarisinde TypeScript API\n\n## 🚀 Özellikler\n- QR ile oturum açma (SSE desteği)\n- Mesaj gönderme/alma (text, image, video, audio, document)\n- Toplu mesaj (gelişmiş kuyruk sistemi)\n- Zamanlanmış mesajlar\n- Otomatik arama reddi\n- Terminal log stream (SSE) - Tüm pino logları gerçek zamanlı\n- **Session Persistence**: PM2/sunucu yeniden başlatıldığında otomatik bağlanma\n\n## 🔒 Güvenlik\nTüm API endpoint'leri (health hariç) API Key gerektirir.\nHeader: `X-API-Key: your_api_key` veya `Authorization: Bearer your_api_key`\n\n## 🏁 Başlangıç\n1. Sunucuyu başlatın: `npm run dev` veya `pm2 start`\n2. API Key'i environment'a ekleyin\n3. QR endpoint'ini çağırın\n4. WhatsApp'tan QR'ı tarayın\n5. Mesaj göndermeye başlayın!\n\n## 📊 Session Yönetimi\n- **Logout endpoint'i**: Oturumu tamamen siler, tekrar QR gerekir\n- **PM2/Sunucu restart**: Oturum korunur, otomatik bağlanır\n- **hasSession**: Status endpoint'inde kayıtlı oturum olup olmadığını gösterir\n\n## ⚡ Performans\n- Request ID ile izleme\n- Gelişmiş rate limiting\n- SSE timeout ve reconnection yönetimi",
     "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json",
-    "version": "2.0.0"
+    "version": "2.1.0"
   },
   "auth": {
     "type": "apikey",
@@ -52,9 +52,7 @@
         {
           "name": "Health Check",
           "request": {
-            "auth": {
-              "type": "noauth"
-            },
+            "auth": { "type": "noauth" },
             "method": "GET",
             "header": [],
             "url": {
@@ -62,14 +60,14 @@
               "host": ["{{baseUrl}}"],
               "path": ["health"]
             },
-            "description": "Sunucu sağlık kontrolü. Sunucunun çalışıp çalışmadığını kontrol eder.\n\n**Not:** Bu endpoint authentication gerektirmez."
+            "description": "Sunucu sağlık kontrolü. Authentication gerektirmez."
           },
           "response": [
             {
               "name": "Success",
               "status": "OK",
               "code": 200,
-              "body": "{\n  \"status\": \"ok\",\n  \"timestamp\": \"2026-02-19T12:00:00.000Z\",\n  \"uptime\": 3600,\n  \"version\": \"1.0.0\",\n  \"memory\": {\n    \"heapUsed\": 45,\n    \"heapTotal\": 78,\n    \"unit\": \"MB\"\n  }\n}"
+              "body": "{\n  \"status\": \"ok\",\n  \"timestamp\": \"2026-02-23T12:00:00.000Z\",\n  \"uptime\": 3600,\n  \"version\": \"2.1.0\",\n  \"memory\": {\n    \"heapUsed\": 45,\n    \"heapTotal\": 78,\n    \"unit\": \"MB\"\n  }\n}"
             }
           ]
         }
@@ -88,7 +86,7 @@
               "host": ["{{baseUrl}}"],
               "path": ["api", "auth", "qr", "stream"]
             },
-            "description": "QR kodunu Server-Sent Events (SSE) ile gerçek zamanlı dinler.\n\n**Güvenlik:** CORS_WHITE_LIST'te tanımlı IP/domain'lerden erişime izin verilir.\n\n**Events:**\n- `qr`: Yeni QR kodu\n- `connected`: Bağlantı kuruldu\n- `disconnected`: Bağlantı kesildi\n- `timeout`: Zaman aşımı (2 dakika)"
+            "description": "QR kodunu SSE ile gerçek zamanlı dinler.\n\n**Events:** qr, connected, disconnected, reconnecting, timeout (2dk)"
           },
           "response": []
         },
@@ -102,7 +100,7 @@
               "host": ["{{baseUrl}}"],
               "path": ["api", "messages", "stream"]
             },
-            "description": "Gelen mesajları Server-Sent Events (SSE) ile gerçek zamanlı dinler.\n\n**Güvenlik:** CORS_WHITE_LIST'te tanımlı IP/domain'lerden erişime izin verilir.\n\n**Query Params:**\n- `jid` (opsiyonel): Belirli bir numaradan gelen mesajları filtrele\n\n**Events:**\n- `init`: Başlangıç durumu (bağlantı bilgisi)\n- `message`: Yeni gelen mesaj\n- `sent`: Gönderilen mesaj\n- `connected`: WhatsApp bağlantısı kuruldu\n- `disconnected`: WhatsApp bağlantısı kesildi\n- `heartbeat`: Bağlantı canlı tutma (30sn)"
+            "description": "Gelen mesajları SSE ile gerçek zamanlı dinler.\n\n**Query:** jid (opsiyonel)\n**Events:** init, message, sent, connected, disconnected, reconnecting, heartbeat (30sn)"
           },
           "response": []
         },
@@ -115,11 +113,41 @@
               "raw": "{{baseUrl}}/api/messages/stream?jid={{testPhoneNumber}}",
               "host": ["{{baseUrl}}"],
               "path": ["api", "messages", "stream"],
+              "query": [{ "key": "jid", "value": "{{testPhoneNumber}}" }]
+            },
+            "description": "Belirli numaradan gelen mesajları gerçek zamanlı dinler."
+          },
+          "response": []
+        },
+        {
+          "name": "Stream Terminal Logs (SSE)",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/terminal/stream",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "terminal", "stream"]
+            },
+            "description": "Sunucu terminal çıktılarını SSE ile gerçek zamanlı dinler.\n\nTüm pino logger çıktıları bu stream üzerinden iletilir. Terminalde gördüğünüz her log burada da görünür.\n\n**Query Params:**\n- category: whatsapp | message | queue | system\n- level: debug | info | warn | error\n\n**Kategoriler:** whatsapp, message, queue, system\n**Seviyeler:** debug, info, warn, error"
+          },
+          "response": []
+        },
+        {
+          "name": "Stream Terminal Logs (Filtered)",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/terminal/stream?category=whatsapp&level=info",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "terminal", "stream"],
               "query": [
-                {"key": "jid", "value": "{{testPhoneNumber}}"}
+                { "key": "category", "value": "whatsapp" },
+                { "key": "level", "value": "info" }
               ]
             },
-            "description": "Belirli bir numaradan gelen mesajları gerçek zamanlı dinler."
+            "description": "Sadece WhatsApp kategorisindeki info+ logları dinler."
           },
           "response": []
         }
@@ -138,7 +166,7 @@
               "host": ["{{baseUrl}}"],
               "path": ["api", "auth", "qr"]
             },
-            "description": "WhatsApp bağlantısı için QR kod alır.\n\n**Not:** QR kodu base64 formatında döner. Tarayıcıda görüntülemek için:\n```html\n<img src=\"data:image/png;base64,...\" />\n```"
+            "description": "WhatsApp bağlantısı için QR kod alır (base64)."
           },
           "response": []
         },
@@ -166,7 +194,7 @@
               "host": ["{{baseUrl}}"],
               "path": ["api", "auth", "status"]
             },
-            "description": "WhatsApp bağlantı durumunu kontrol eder.\n\n**Response:**\n- `isConnected`: Aktif bağlantı var mı\n- `isConnecting`: Bağlantı girişimi devam ediyor mu\n- `hasSession`: Kayıtlı oturum dosyası var mı (restart sonrası otomatik bağlantı için)\n- `session`: Bağlı ise oturum bilgileri"
+            "description": "WhatsApp bağlantı durumunu kontrol eder.\n\nResponse: isConnected, isConnecting, hasSession, session"
           },
           "response": [
             {
@@ -174,18 +202,6 @@
               "status": "OK",
               "code": 200,
               "body": "{\n  \"success\": true,\n  \"data\": {\n    \"isConnected\": true,\n    \"isConnecting\": false,\n    \"hasSession\": true,\n    \"session\": {\n      \"jid\": \"905551234567@s.whatsapp.net\",\n      \"name\": \"User Name\",\n      \"phone\": \"905551234567\"\n    }\n  }\n}"
-            },
-            {
-              "name": "Disconnected with Session",
-              "status": "OK",
-              "code": 200,
-              "body": "{\n  \"success\": true,\n  \"data\": {\n    \"isConnected\": false,\n    \"isConnecting\": false,\n    \"hasSession\": true\n  }\n}"
-            },
-            {
-              "name": "No Session",
-              "status": "OK",
-              "code": 200,
-              "body": "{\n  \"success\": true,\n  \"data\": {\n    \"isConnected\": false,\n    \"isConnecting\": false,\n    \"hasSession\": false\n  }\n}"
             }
           ]
         },
@@ -199,7 +215,7 @@
               "host": ["{{baseUrl}}"],
               "path": ["api", "auth", "logout"]
             },
-            "description": "WhatsApp oturumunu tamamen kapatır ve session dosyalarını temizler.\n\n**Önemli:** Bu işlem sonrası tekrar QR kod okutmanız gerekir. Sunucu yeniden başlatıldığında otomatik bağlantı YAPILAMAZ.\n\n**PM2/Sunucu Restart:** Sunucu kapatıldığında oturum korunur ve yeniden başlatıldığında otomatik bağlanır. Bu endpoint sadece bilinçli çıkış için kullanılmalıdır."
+            "description": "Oturumu kapatır ve session dosyalarını siler. Tekrar QR gerekir."
           },
           "response": []
         },
@@ -213,7 +229,7 @@
               "host": ["{{baseUrl}}"],
               "path": ["api", "auth", "cancel"]
             },
-            "description": "Devam eden bağlantı girişimini (QR oluşturma) iptal eder."
+            "description": "Devam eden bağlantı girişimini iptal eder. Sadece isConnecting=true iken çalışır."
           },
           "response": []
         }
@@ -226,12 +242,7 @@
           "name": "Send Text Message",
           "request": {
             "method": "POST",
-            "header": [
-              {
-                "key": "Content-Type",
-                "value": "application/json"
-              }
-            ],
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
             "body": {
               "mode": "raw",
               "raw": "{\n  \"jid\": \"{{testPhoneNumber}}\",\n  \"message\": \"Merhaba! Bu bir test mesajıdır. 🎉\",\n  \"typingDuration\": 3000\n}"
@@ -241,7 +252,7 @@
               "host": ["{{baseUrl}}"],
               "path": ["api", "messages", "send"]
             },
-            "description": "Text mesaj gönderir.\n\n**Parametreler:**\n- `jid`: Telefon numarası (ülke kodu ile)\n- `message`: Gönderilecek metin\n- `typingDuration` (opsiyonel): Yazıyor gösterge süresi (ms), varsayılan: 3000\n- `scheduledAt` (opsiyonel): ISO tarih formatı - mesaj bu tarihte gönderilir"
+            "description": "Text mesaj gönderir.\n\nParametreler: jid, message, typingDuration (opsiyonel), scheduledAt (opsiyonel)"
           },
           "response": []
         },
@@ -249,12 +260,7 @@
           "name": "Send Image Message",
           "request": {
             "method": "POST",
-            "header": [
-              {
-                "key": "Content-Type",
-                "value": "application/json"
-              }
-            ],
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
             "body": {
               "mode": "raw",
               "raw": "{\n  \"jid\": \"{{testPhoneNumber}}\",\n  \"type\": \"image\",\n  \"mediaUrl\": \"https://via.placeholder.com/300\",\n  \"caption\": \"Bu bir test resmi\"\n}"
@@ -264,7 +270,7 @@
               "host": ["{{baseUrl}}"],
               "path": ["api", "messages", "send"]
             },
-            "description": "Resim mesajı gönderir.\n\n**Parametreler:**\n- `jid`: Telefon numarası\n- `type`: \"image\"\n- `mediaUrl` veya `mediaBase64`: Resim kaynağı\n- `caption` (opsiyonel): Resim açıklaması"
+            "description": "Resim mesajı gönderir. mediaUrl veya mediaBase64 gerekli."
           },
           "response": []
         },
@@ -272,12 +278,7 @@
           "name": "Send Document",
           "request": {
             "method": "POST",
-            "header": [
-              {
-                "key": "Content-Type",
-                "value": "application/json"
-              }
-            ],
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
             "body": {
               "mode": "raw",
               "raw": "{\n  \"jid\": \"{{testPhoneNumber}}\",\n  \"type\": \"document\",\n  \"mediaUrl\": \"https://example.com/sample.pdf\",\n  \"fileName\": \"belge.pdf\",\n  \"caption\": \"Önemli belge\"\n}"
@@ -292,6 +293,42 @@
           "response": []
         },
         {
+          "name": "Send Video Message",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"jid\": \"{{testPhoneNumber}}\",\n  \"type\": \"video\",\n  \"mediaUrl\": \"https://example.com/sample.mp4\",\n  \"caption\": \"Test videosu\"\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/api/messages/send",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "messages", "send"]
+            },
+            "description": "Video mesajı gönderir."
+          },
+          "response": []
+        },
+        {
+          "name": "Send Audio Message",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"jid\": \"{{testPhoneNumber}}\",\n  \"type\": \"audio\",\n  \"mediaUrl\": \"https://example.com/sample.mp3\"\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/api/messages/send",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "messages", "send"]
+            },
+            "description": "Sesli mesaj (voice note) gönderir."
+          },
+          "response": []
+        },
+        {
           "name": "Get All Chats",
           "request": {
             "method": "GET",
@@ -301,7 +338,28 @@
               "host": ["{{baseUrl}}"],
               "path": ["api", "messages", "chats"]
             },
-            "description": "Tüm sohbetleri listeler.\n\n**Filtre Parametreleri:**\n- `archived`: true/false\n- `unread`: true (sadece okunmamış)\n- `countryCode`: Ülke kodu (örn: 90)\n- `search`: Arama terimi\n- `sortBy`: lastMessage, unread, name\n- `page`: Sayfa numarası\n- `limit`: Sayfa başına kayıt"
+            "description": "Tüm sohbetleri listeler.\n\nFiltreler: archived, unread, read, countryCode, search, startDate, endDate, sortBy, sortOrder, page, limit"
+          },
+          "response": []
+        },
+        {
+          "name": "Get All Chats (Filtered)",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/messages/chats?unread=true&countryCode=90&sortBy=lastMessage&page=1&limit=20",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "messages", "chats"],
+              "query": [
+                { "key": "unread", "value": "true" },
+                { "key": "countryCode", "value": "90" },
+                { "key": "sortBy", "value": "lastMessage" },
+                { "key": "page", "value": "1" },
+                { "key": "limit", "value": "20" }
+              ]
+            },
+            "description": "Filtre parametreleri ile sohbetleri listeler."
           },
           "response": []
         },
@@ -315,11 +373,11 @@
               "host": ["{{baseUrl}}"],
               "path": ["api", "messages", "history", "{{testPhoneNumber}}@s.whatsapp.net"],
               "query": [
-                {"key": "limit", "value": "50"},
-                {"key": "page", "value": "1"}
+                { "key": "limit", "value": "50" },
+                { "key": "page", "value": "1" }
               ]
             },
-            "description": "Mesaj geçmişini sayfalama ile getirir."
+            "description": "Mesaj geçmişini sayfalama ile getirir. Yerel cache + WhatsApp store birleştirilir."
           },
           "response": []
         },
@@ -347,7 +405,7 @@
               "host": ["{{baseUrl}}"],
               "path": ["api", "messages", "check", "{{testPhoneNumber}}"]
             },
-            "description": "Numaranın WhatsApp'ta kayıtlı olup olmadığını kontrol eder."
+            "description": "Numaranın WhatsApp'ta kayıtlı olup olmadığını kontrol eder. Bağlantı gerekli."
           },
           "response": []
         },
@@ -361,7 +419,7 @@
               "host": ["{{baseUrl}}"],
               "path": ["api", "messages", "profile", "{{testPhoneNumber}}"]
             },
-            "description": "Kişinin profil bilgilerini ve durumunu getirir."
+            "description": "Kişinin profil bilgilerini getirir (foto, durum mesajı). Bağlantı gerekli."
           },
           "response": []
         },
@@ -369,9 +427,7 @@
           "name": "Send Typing Indicator",
           "request": {
             "method": "POST",
-            "header": [
-              {"key": "Content-Type", "value": "application/json"}
-            ],
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
             "body": {
               "mode": "raw",
               "raw": "{\n  \"duration\": 3000\n}"
@@ -381,7 +437,7 @@
               "host": ["{{baseUrl}}"],
               "path": ["api", "messages", "typing", "{{testPhoneNumber}}"]
             },
-            "description": "Yazıyor... göstergesi gönderir."
+            "description": "Yazıyor... göstergesi gönderir. duration (ms, varsayılan: 3000). Bağlantı gerekli."
           },
           "response": []
         },
@@ -395,98 +451,7 @@
               "host": ["{{baseUrl}}"],
               "path": ["api", "messages", "read", "{{testPhoneNumber}}"]
             },
-            "description": "Sohbeti okundu olarak işaretler."
-          },
-          "response": []
-        },
-        {
-          "name": "Archive Chat",
-          "request": {
-            "method": "POST",
-            "header": [
-              {"key": "Content-Type", "value": "application/json"}
-            ],
-            "body": {
-              "mode": "raw",
-              "raw": "{\n  \"archive\": true\n}"
-            },
-            "url": {
-              "raw": "{{baseUrl}}/api/messages/archive/{{testPhoneNumber}}",
-              "host": ["{{baseUrl}}"],
-              "path": ["api", "messages", "archive", "{{testPhoneNumber}}"]
-            },
-            "description": "Sohbeti arşivler veya arşivden çıkarır."
-          },
-          "response": []
-        },
-        {
-          "name": "Pin Chat",
-          "request": {
-            "method": "POST",
-            "header": [
-              {"key": "Content-Type", "value": "application/json"}
-            ],
-            "body": {
-              "mode": "raw",
-              "raw": "{\n  \"pin\": true\n}"
-            },
-            "url": {
-              "raw": "{{baseUrl}}/api/messages/pin/{{testPhoneNumber}}",
-              "host": ["{{baseUrl}}"],
-              "path": ["api", "messages", "pin", "{{testPhoneNumber}}"]
-            },
-            "description": "Sohbeti sabitler veya sabitlemeyi kaldırır."
-          },
-          "response": []
-        },
-        {
-          "name": "Mute Chat",
-          "request": {
-            "method": "POST",
-            "header": [
-              {"key": "Content-Type", "value": "application/json"}
-            ],
-            "body": {
-              "mode": "raw",
-              "raw": "{\n  \"mute\": true,\n  \"duration\": 86400000\n}"
-            },
-            "url": {
-              "raw": "{{baseUrl}}/api/messages/mute/{{testPhoneNumber}}",
-              "host": ["{{baseUrl}}"],
-              "path": ["api", "messages", "mute", "{{testPhoneNumber}}"]
-            },
-            "description": "Sohbeti sessize alır."
-          },
-          "response": []
-        },
-        {
-          "name": "Delete Message",
-          "request": {
-            "method": "DELETE",
-            "header": [],
-            "url": {
-              "raw": "{{baseUrl}}/api/messages/{{testPhoneNumber}}/MESSAGE_ID?forEveryone=true",
-              "host": ["{{baseUrl}}"],
-              "path": ["api", "messages", "{{testPhoneNumber}}", "MESSAGE_ID"],
-              "query": [
-                {"key": "forEveryone", "value": "true"}
-              ]
-            },
-            "description": "Mesajı siler."
-          },
-          "response": []
-        },
-        {
-          "name": "Clear Chat History",
-          "request": {
-            "method": "DELETE",
-            "header": [],
-            "url": {
-              "raw": "{{baseUrl}}/api/messages/history/{{testPhoneNumber}}@s.whatsapp.net",
-              "host": ["{{baseUrl}}"],
-              "path": ["api", "messages", "history", "{{testPhoneNumber}}@s.whatsapp.net"]
-            },
-            "description": "Yerel mesaj geçmişini temizler."
+            "description": "Sohbeti okundu olarak işaretler. Yerel cache + WhatsApp okundu bildirimi. Bağlantı gerekli."
           },
           "response": []
         }
@@ -499,19 +464,17 @@
           "name": "Schedule Text Message",
           "request": {
             "method": "POST",
-            "header": [
-              {"key": "Content-Type", "value": "application/json"}
-            ],
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
             "body": {
               "mode": "raw",
-              "raw": "{\n  \"jid\": \"{{testPhoneNumber}}\",\n  \"message\": \"Bu zamanlanmış bir mesajdır!\",\n  \"typingDuration\": 3000,\n  \"scheduledAt\": \"2026-02-17T10:00:00.000Z\"\n}"
+              "raw": "{\n  \"jid\": \"{{testPhoneNumber}}\",\n  \"message\": \"Bu zamanlanmış bir mesajdır!\",\n  \"typingDuration\": 3000,\n  \"scheduledAt\": \"2026-03-01T10:00:00.000Z\"\n}"
             },
             "url": {
               "raw": "{{baseUrl}}/api/messages/schedule",
               "host": ["{{baseUrl}}"],
               "path": ["api", "messages", "schedule"]
             },
-            "description": "Mesajı ileri bir tarihe zamanlar. Normal mesaj gönderme ile aynı özelliklere sahiptir.\n\n**Önemli:** scheduledAt en az 1 dakika sonrası olmalıdır!\n\n**Parametreler:**\n- `jid`: Telefon numarası\n- `message`: Mesaj (text için)\n- `type`: text, image, audio, video, document\n- `typingDuration`: Yazıyor gösterge süresi (ms), varsayılan: 3000\n- `mediaUrl` / `mediaBase64`: Medya kaynağı\n- `caption`: Medya açıklaması\n- `fileName`: Dosya adı (document için)\n- `scheduledAt`: ISO tarih formatı (gelecekte olmalı)"
+            "description": "Mesajı ileri bir tarihe zamanlar. scheduledAt en az 30 saniye sonrası olmalı. Bağlantı gerekli."
           },
           "response": []
         },
@@ -519,12 +482,10 @@
           "name": "Schedule Media Message",
           "request": {
             "method": "POST",
-            "header": [
-              {"key": "Content-Type", "value": "application/json"}
-            ],
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
             "body": {
               "mode": "raw",
-              "raw": "{\n  \"jid\": \"{{testPhoneNumber}}\",\n  \"type\": \"image\",\n  \"mediaUrl\": \"https://via.placeholder.com/300\",\n  \"caption\": \"Zamanlanmış resim\",\n  \"typingDuration\": 2000,\n  \"scheduledAt\": \"2026-02-17T10:00:00.000Z\"\n}"
+              "raw": "{\n  \"jid\": \"{{testPhoneNumber}}\",\n  \"type\": \"image\",\n  \"mediaUrl\": \"https://via.placeholder.com/300\",\n  \"caption\": \"Zamanlanmış resim\",\n  \"typingDuration\": 2000,\n  \"scheduledAt\": \"2026-03-01T10:00:00.000Z\"\n}"
             },
             "url": {
               "raw": "{{baseUrl}}/api/messages/schedule",
@@ -545,7 +506,22 @@
               "host": ["{{baseUrl}}"],
               "path": ["api", "messages", "scheduled"]
             },
-            "description": "Tüm zamanlanmış mesajları listeler.\n\n**Filtre:**\n- `status`: pending, sent, failed, cancelled\n- `jid`: Belirli numara"
+            "description": "Tüm zamanlanmış mesajları listeler. Filtre: status, jid"
+          },
+          "response": []
+        },
+        {
+          "name": "Get Scheduled Messages (Pending)",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/messages/scheduled?status=pending",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "messages", "scheduled"],
+              "query": [{ "key": "status", "value": "pending" }]
+            },
+            "description": "Sadece bekleyen zamanlanmış mesajları listeler."
           },
           "response": []
         },
@@ -555,9 +531,10 @@
             "method": "GET",
             "header": [],
             "url": {
-              "raw": "{{baseUrl}}/api/messages/scheduled/SCHEDULED_MESSAGE_ID",
+              "raw": "{{baseUrl}}/api/messages/scheduled/:id",
               "host": ["{{baseUrl}}"],
-              "path": ["api", "messages", "scheduled", "SCHEDULED_MESSAGE_ID"]
+              "path": ["api", "messages", "scheduled", ":id"],
+              "variable": [{ "key": "id", "value": "SCHEDULED_MESSAGE_ID" }]
             },
             "description": "Zamanlanmış mesaj detayını getirir."
           },
@@ -567,19 +544,18 @@
           "name": "Update Scheduled Message",
           "request": {
             "method": "PUT",
-            "header": [
-              {"key": "Content-Type", "value": "application/json"}
-            ],
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
             "body": {
               "mode": "raw",
-              "raw": "{\n  \"message\": \"Güncellenmiş mesaj içeriği\",\n  \"typingDuration\": 5000,\n  \"scheduledAt\": \"2026-02-17T12:00:00.000Z\"\n}"
+              "raw": "{\n  \"message\": \"Güncellenmiş mesaj içeriği\",\n  \"typingDuration\": 5000,\n  \"scheduledAt\": \"2026-03-01T12:00:00.000Z\"\n}"
             },
             "url": {
-              "raw": "{{baseUrl}}/api/messages/scheduled/SCHEDULED_MESSAGE_ID",
+              "raw": "{{baseUrl}}/api/messages/scheduled/:id",
               "host": ["{{baseUrl}}"],
-              "path": ["api", "messages", "scheduled", "SCHEDULED_MESSAGE_ID"]
+              "path": ["api", "messages", "scheduled", ":id"],
+              "variable": [{ "key": "id", "value": "SCHEDULED_MESSAGE_ID" }]
             },
-            "description": "Zamanlanmış mesajı düzenler. Sadece 'pending' durumundaki mesajlar düzenlenebilir."
+            "description": "Zamanlanmış mesajı düzenler. Sadece pending durumundaki mesajlar düzenlenebilir."
           },
           "response": []
         },
@@ -589,9 +565,10 @@
             "method": "DELETE",
             "header": [],
             "url": {
-              "raw": "{{baseUrl}}/api/messages/scheduled/SCHEDULED_MESSAGE_ID",
+              "raw": "{{baseUrl}}/api/messages/scheduled/:id",
               "host": ["{{baseUrl}}"],
-              "path": ["api", "messages", "scheduled", "SCHEDULED_MESSAGE_ID"]
+              "path": ["api", "messages", "scheduled", ":id"],
+              "variable": [{ "key": "id", "value": "SCHEDULED_MESSAGE_ID" }]
             },
             "description": "Zamanlanmış mesajı iptal eder."
           },
@@ -620,12 +597,7 @@
           "name": "Send Bulk Messages (Basic)",
           "request": {
             "method": "POST",
-            "header": [
-              {
-                "key": "Content-Type",
-                "value": "application/json"
-              }
-            ],
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
             "body": {
               "mode": "raw",
               "raw": "{\n  \"recipients\": [\n    \"905551111111\",\n    \"905552222222\",\n    \"905553333333\"\n  ],\n  \"message\": \"Merhaba! Bu bir toplu mesajdır. 📢\"\n}"
@@ -635,7 +607,7 @@
               "host": ["{{baseUrl}}"],
               "path": ["api", "bulk", "send"]
             },
-            "description": "Birden fazla alıcıya basit toplu mesaj gönderir."
+            "description": "Basit toplu mesaj gönderir. Bağlantı gerekli."
           },
           "response": []
         },
@@ -643,22 +615,17 @@
           "name": "Send Bulk Messages (Advanced)",
           "request": {
             "method": "POST",
-            "header": [
-              {
-                "key": "Content-Type",
-                "value": "application/json"
-              }
-            ],
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
             "body": {
               "mode": "raw",
-              "raw": "{\n  \"recipients\": [\n    \"905551111111\",\n    \"905552222222\",\n    \"905553333333\"\n  ],\n  \"message\": \"Merhaba! Bu bir toplu mesajdır. 📢\",\n  \"type\": \"text\",\n  \"scheduledAt\": \"2026-02-17T10:00:00.000Z\",\n  \"timeWindow\": {\n    \"startTime\": \"09:00\",\n    \"endTime\": \"18:00\"\n  },\n  \"typingDuration\": 3000,\n  \"minDelay\": 5000,\n  \"maxDelay\": 10000\n}"
+              "raw": "{\n  \"recipients\": [\n    \"905551111111\",\n    \"905552222222\",\n    \"905553333333\"\n  ],\n  \"message\": \"Merhaba! Bu bir toplu mesajdır. 📢\",\n  \"type\": \"text\",\n  \"scheduledAt\": \"2026-03-01T10:00:00.000Z\",\n  \"timeWindow\": {\n    \"startTime\": \"09:00\",\n    \"endTime\": \"18:00\"\n  },\n  \"typingDuration\": 3000,\n  \"minDelay\": 5000,\n  \"maxDelay\": 10000\n}"
             },
             "url": {
               "raw": "{{baseUrl}}/api/bulk/send",
               "host": ["{{baseUrl}}"],
               "path": ["api", "bulk", "send"]
             },
-            "description": "Gelişmiş seçeneklerle toplu mesaj gönderir.\n\n**Parametreler:**\n- `recipients`: string[] - Alıcı telefon numaraları\n- `message`: string - Mesaj içeriği (text için)\n- `type`: string - Mesaj tipi: text, image, video, audio, document\n- `mediaUrl`: string - Medya URL'si (medya mesajları için)\n- `mediaBase64`: string - Base64 medya verisi\n- `caption`: string - Medya başlığı\n- `fileName`: string - Dosya adı (document için)\n- `scheduledAt`: string - ISO 8601 tarih (ne zaman başlasın)\n- `timeWindow`: object - Sadece bu saatler arasında gönder\n  - `startTime`: string - HH:mm formatı (örn: 09:00)\n  - `endTime`: string - HH:mm formatı (örn: 18:00)\n- `typingDuration`: number - Typing göstergesi süresi (ms, varsayılan: 3000)\n- `minDelay`: number - Mesajlar arası minimum gecikme (ms, varsayılan: 5000, min: 2000)\n- `maxDelay`: number - Mesajlar arası maksimum gecikme (ms, varsayılan: 10000)\n\n**Spam Koruması:**\n- Minimum delay 2 saniyenin altına düşemez\n- Her 15 mesajda bir 30-60 saniyelik otomatik mola verilir\n- Bu sayede WhatsApp spam algılamasına takılma riski minimize edilir"
+            "description": "Gelişmiş seçeneklerle toplu mesaj gönderir.\n\nrecipients, message, type, mediaUrl, mediaBase64, caption, fileName, scheduledAt, timeWindow, typingDuration, minDelay (min:2000), maxDelay\n\nSpam Koruması: Her 15 mesajda 30-60sn mola."
           },
           "response": []
         },
@@ -666,12 +633,7 @@
           "name": "Send Bulk Media Messages",
           "request": {
             "method": "POST",
-            "header": [
-              {
-                "key": "Content-Type",
-                "value": "application/json"
-              }
-            ],
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
             "body": {
               "mode": "raw",
               "raw": "{\n  \"recipients\": [\n    \"905551111111\",\n    \"905552222222\"\n  ],\n  \"type\": \"image\",\n  \"mediaUrl\": \"https://example.com/image.jpg\",\n  \"caption\": \"Kampanya görseli 🎉\",\n  \"typingDuration\": 2000,\n  \"minDelay\": 6000,\n  \"maxDelay\": 12000\n}"
@@ -681,7 +643,7 @@
               "host": ["{{baseUrl}}"],
               "path": ["api", "bulk", "send"]
             },
-            "description": "Birden fazla alıcıya toplu medya mesajı gönderir (resim, video, ses, döküman).\n\n**Desteklenen Medya Tipleri:**\n- `image`: Resim (jpg, png, gif, webp)\n- `video`: Video (mp4, 3gp)\n- `audio`: Ses (mp3, ogg, wav)\n- `document`: Döküman (pdf, doc, xls, vb.)"
+            "description": "Toplu medya mesajı gönderir. Tipler: image, video, audio, document"
           },
           "response": []
         },
@@ -708,14 +670,9 @@
               "raw": "{{baseUrl}}/api/bulk/status/:jobId",
               "host": ["{{baseUrl}}"],
               "path": ["api", "bulk", "status", ":jobId"],
-              "variable": [
-                {
-                  "key": "jobId",
-                  "value": "JOB_ID_HERE"
-                }
-              ]
+              "variable": [{ "key": "jobId", "value": "JOB_ID_HERE" }]
             },
-            "description": "Belirli bir toplu mesaj işinin durumunu getirir."
+            "description": "İş durumunu getirir: status, progress, success/failed/pending sayaçları, tahmini tamamlanma."
           },
           "response": []
         },
@@ -728,14 +685,9 @@
               "raw": "{{baseUrl}}/api/bulk/status/:jobId/detailed",
               "host": ["{{baseUrl}}"],
               "path": ["api", "bulk", "status", ":jobId", "detailed"],
-              "variable": [
-                {
-                  "key": "jobId",
-                  "value": "JOB_ID_HERE"
-                }
-              ]
+              "variable": [{ "key": "jobId", "value": "JOB_ID_HERE" }]
             },
-            "description": "Tüm alıcıların durumunu içeren detaylı iş durumunu getirir."
+            "description": "Tüm alıcıların durumunu içeren detaylı iş raporu."
           },
           "response": []
         },
@@ -743,12 +695,7 @@
           "name": "Pause Job",
           "request": {
             "method": "POST",
-            "header": [
-              {
-                "key": "Content-Type",
-                "value": "application/json"
-              }
-            ],
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
             "body": {
               "mode": "raw",
               "raw": "{\n  \"reason\": \"Manuel olarak duraklatıldı\"\n}"
@@ -757,14 +704,9 @@
               "raw": "{{baseUrl}}/api/bulk/pause/:jobId",
               "host": ["{{baseUrl}}"],
               "path": ["api", "bulk", "pause", ":jobId"],
-              "variable": [
-                {
-                  "key": "jobId",
-                  "value": "JOB_ID_HERE"
-                }
-              ]
+              "variable": [{ "key": "jobId", "value": "JOB_ID_HERE" }]
             },
-            "description": "Çalışan bir toplu mesaj işini duraklatır."
+            "description": "Çalışan işi duraklatır."
           },
           "response": []
         },
@@ -777,14 +719,9 @@
               "raw": "{{baseUrl}}/api/bulk/resume/:jobId",
               "host": ["{{baseUrl}}"],
               "path": ["api", "bulk", "resume", ":jobId"],
-              "variable": [
-                {
-                  "key": "jobId",
-                  "value": "JOB_ID_HERE"
-                }
-              ]
+              "variable": [{ "key": "jobId", "value": "JOB_ID_HERE" }]
             },
-            "description": "Duraklatılmış bir toplu mesaj işini devam ettirir."
+            "description": "Duraklatılmış işi devam ettirir."
           },
           "response": []
         },
@@ -797,14 +734,9 @@
               "raw": "{{baseUrl}}/api/bulk/cancel/:jobId",
               "host": ["{{baseUrl}}"],
               "path": ["api", "bulk", "cancel", ":jobId"],
-              "variable": [
-                {
-                  "key": "jobId",
-                  "value": "JOB_ID_HERE"
-                }
-              ]
+              "variable": [{ "key": "jobId", "value": "JOB_ID_HERE" }]
             },
-            "description": "Bekleyen bir toplu mesaj işini iptal eder."
+            "description": "İşi iptal eder."
           },
           "response": []
         },
@@ -817,14 +749,9 @@
               "raw": "{{baseUrl}}/api/bulk/job/:jobId",
               "host": ["{{baseUrl}}"],
               "path": ["api", "bulk", "job", ":jobId"],
-              "variable": [
-                {
-                  "key": "jobId",
-                  "value": "JOB_ID_HERE"
-                }
-              ]
+              "variable": [{ "key": "jobId", "value": "JOB_ID_HERE" }]
             },
-            "description": "Tamamlanmış veya iptal edilmiş bir işi siler."
+            "description": "Tamamlanmış/iptal edilmiş işi siler. Çalışan iş silinemez."
           },
           "response": []
         },
@@ -838,7 +765,7 @@
               "host": ["{{baseUrl}}"],
               "path": ["api", "bulk", "completed"]
             },
-            "description": "Tüm tamamlanmış ve iptal edilmiş işleri temizler."
+            "description": "Tüm tamamlanmış/iptal edilmiş işleri temizler."
           },
           "response": []
         }
@@ -857,7 +784,7 @@
               "host": ["{{baseUrl}}"],
               "path": ["api", "settings"]
             },
-            "description": "Tüm ayarları getirir:\n- timezone: Saat dilimi\n- autoRead: Mesajları otomatik okundu işaretle\n- notify: Bildirimleri al\n- corsWhiteList: İzin verilen originler\n- callReject: Arama reddi ayarları\n- time: Mevcut zaman bilgisi"
+            "description": "Tüm ayarları getirir: timezone, autoRead, notify, corsWhiteList, callReject, time"
           },
           "response": []
         },
@@ -865,9 +792,7 @@
           "name": "Update Settings",
           "request": {
             "method": "PUT",
-            "header": [
-              {"key": "Content-Type", "value": "application/json"}
-            ],
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
             "body": {
               "mode": "raw",
               "raw": "{\n  \"timezone\": \"Europe/Istanbul\",\n  \"autoRead\": false,\n  \"notify\": false,\n  \"corsWhiteList\": [],\n  \"callReject\": {\n    \"enabled\": true\n  }\n}"
@@ -877,7 +802,7 @@
               "host": ["{{baseUrl}}"],
               "path": ["api", "settings"]
             },
-            "description": "Ayarları günceller - tüm değişiklikler anında geçerli olur.\n\n**Parametreler (hepsi opsiyonel):**\n- `timezone`: Saat dilimi (örn: \"Europe/Istanbul\", \"America/New_York\")\n- `autoRead`: boolean - Mesajları otomatik okundu işaretle\n- `notify`: boolean - Bildirimleri al\n- `corsWhiteList`: string[] - İzin verilen originler\n- `callReject.enabled`: boolean - Aramaları otomatik reddet"
+            "description": "Ayarları günceller - anında geçerli olur. Tüm alanlar opsiyonel."
           },
           "response": []
         }
@@ -896,99 +821,9 @@
               "host": ["{{baseUrl}}"],
               "path": ["api", "stats"]
             },
-            "description": "Sunucunun tüm istatistiklerini getirir."
+             "description": "Tüm istatistikler: server, system, whatsapp, queue, messages, health\n\nTek endpoint ile tüm sunucu bilgilerine erişim sağlar."
           },
           "response": []
-        },
-        {
-          "name": "Get System Stats",
-          "request": {
-            "method": "GET",
-            "header": [],
-            "url": {
-              "raw": "{{baseUrl}}/api/stats/system",
-              "host": ["{{baseUrl}}"],
-              "path": ["api", "stats", "system"]
-            },
-            "description": "Sadece sistem istatistiklerini getirir."
-          },
-          "response": []
-        },
-        {
-          "name": "Get WhatsApp Stats",
-          "request": {
-            "method": "GET",
-            "header": [],
-            "url": {
-              "raw": "{{baseUrl}}/api/stats/whatsapp",
-              "host": ["{{baseUrl}}"],
-              "path": ["api", "stats", "whatsapp"]
-            },
-            "description": "WhatsApp bağlantı istatistiklerini getirir."
-          },
-          "response": []
-        },
-        {
-          "name": "Get Queue Stats",
-          "request": {
-            "method": "GET",
-            "header": [],
-            "url": {
-              "raw": "{{baseUrl}}/api/stats/queue",
-              "host": ["{{baseUrl}}"],
-              "path": ["api", "stats", "queue"]
-            },
-            "description": "Kuyruk istatistiklerini getirir."
-          },
-          "response": []
-        }
-      ]
-    },
-    {
-      "name": "Cache Management",
-      "description": "Sunucu önbellek yönetimi. RAM'de tutulan verileri temizleme ve istatistiklerini görüntüleme.",
-      "item": [
-        {
-          "name": "Get Cache Stats",
-          "request": {
-            "method": "GET",
-            "header": [],
-            "url": {
-              "raw": "{{baseUrl}}/api/cache/stats",
-              "host": ["{{baseUrl}}"],
-              "path": ["api", "cache", "stats"]
-            },
-            "description": "Önbellek istatistiklerini getirir.\n\n**Dönen Bilgiler:**\n- Mesaj geçmişi (sohbet sayısı, toplam mesaj)\n- Sohbet metadata sayısı\n- Bellek kullanımı (heap, RSS)"
-          },
-          "response": [
-            {
-              "name": "Success",
-              "status": "OK",
-              "code": 200,
-              "body": "{\n  \"success\": true,\n  \"data\": {\n    \"cache\": {\n      \"messageHistory\": {\n        \"chats\": 15,\n        \"totalMessages\": 245\n      },\n      \"chatMetadata\": 15,\n      \"scheduledMessages\": 0\n    },\n    \"memory\": {\n      \"heapUsed\": 45.23,\n      \"heapTotal\": 78.56,\n      \"rss\": 112.34,\n      \"external\": 2.45,\n      \"unit\": \"MB\"\n    }\n  }\n}"
-            }
-          ]
-        },
-        {
-          "name": "Clear Cache",
-          "request": {
-            "method": "POST",
-            "header": [],
-            "url": {
-              "raw": "{{baseUrl}}/api/cache/clear",
-              "host": ["{{baseUrl}}"],
-              "path": ["api", "cache", "clear"]
-            },
-            "description": "Tüm önbelleği temizler ve RAM'i serbest bırakır.\n\n**Temizlenen Veriler:**\n- Mesaj geçmişi (tüm sohbetler)\n- Sohbet metadata\n- Tamamlanan kuyruk işleri\n\n**Not:** Bu işlem geri alınamaz. Mesaj geçmişi WhatsApp'tan yeniden yüklenmesi gerekecektir."
-          },
-          "response": [
-            {
-              "name": "Success",
-              "status": "OK",
-              "code": 200,
-              "body": "{\n  \"success\": true,\n  \"data\": {\n    \"message\": \"Cache başarıyla temizlendi\",\n    \"cleared\": {\n      \"clearedChats\": 15,\n      \"clearedMessages\": 245,\n      \"clearedMetadata\": 15,\n      \"queueJobs\": 3\n    },\n    \"memory\": {\n      \"before\": {\n        \"heapUsed\": 45.23,\n        \"heapTotal\": 78.56\n      },\n      \"after\": {\n        \"heapUsed\": 32.45,\n        \"heapTotal\": 78.56\n      },\n      \"freed\": 12.78,\n      \"unit\": \"MB\"\n    }\n  }\n}"
-            }
-          ]
         }
       ]
     }

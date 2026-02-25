@@ -4,6 +4,7 @@ import messageController from '../controllers/MessageController';
 import bulkController from '../controllers/BulkController';
 import statsController from '../controllers/StatsController';
 import settingsController from '../controllers/SettingsController';
+import terminalController from '../controllers/TerminalController';
 import { asyncHandler } from '../middlewares/errorHandler';
 import { strictRateLimiter } from '../middlewares/rateLimiter';
 import { requireConnection } from '../middlewares/connectionGuard';
@@ -14,12 +15,14 @@ const router = Router();
 
 router.use(authMiddleware);
 
+// SSE Streams
 router.get('/auth/qr/stream', sseGuard, authController.streamQR.bind(authController));
 router.get('/messages/stream', sseGuard, messageController.streamMessages.bind(messageController));
+router.get('/terminal/stream', sseGuard, terminalController.streamTerminal.bind(terminalController));
 
 router.get('/auth/qr', asyncHandler(authController.getQR.bind(authController)));
 router.get('/auth/qr/image', asyncHandler(authController.getQRImage.bind(authController)));
-router.get('/auth/status', authController.getStatus.bind(authController));
+router.get('/auth/status', asyncHandler(authController.getStatus.bind(authController)));
 router.post('/auth/logout', asyncHandler(authController.logout.bind(authController)));
 router.post('/auth/cancel', asyncHandler(authController.cancelConnection.bind(authController)));
 
@@ -29,11 +32,11 @@ router.post(
   strictRateLimiter(30, 60000),
   asyncHandler(messageController.send.bind(messageController))
 );
-// Message history - daha gevşek rate limit çünkü sık çağrılıyor
+// Message history
 router.get('/messages/history/:jid', asyncHandler(messageController.getHistory.bind(messageController)));
 router.get('/messages/chats', messageController.getChats.bind(messageController));
-router.delete('/messages/history/:jid?', messageController.clearHistory.bind(messageController));
 
+// Scheduled messages
 router.post(
   '/messages/schedule',
   requireConnection,
@@ -66,24 +69,19 @@ router.get(
   asyncHandler(messageController.getProfile.bind(messageController))
 );
 
+// Message actions
 router.post(
   '/messages/typing/:jid',
   requireConnection,
   asyncHandler(messageController.sendTyping.bind(messageController))
 );
-
 router.post(
   '/messages/read/:jid',
   requireConnection,
   asyncHandler(messageController.markAsRead.bind(messageController))
 );
 
-router.delete(
-  '/messages/:jid/:messageId',
-  requireConnection,
-  asyncHandler(messageController.deleteMessage.bind(messageController))
-);
-
+// Message stats
 router.get('/messages/stats', messageController.getChatStats.bind(messageController));
 
 router.post(
@@ -104,13 +102,7 @@ router.delete('/bulk/completed', bulkController.clearCompleted.bind(bulkControll
 router.get('/settings', settingsController.getSettings.bind(settingsController));
 router.put('/settings', settingsController.updateSettings.bind(settingsController));
 
+// Stats - Tek endpoint ile tüm istatistikler
 router.get('/stats', statsController.getStats.bind(statsController));
-router.get('/stats/system', statsController.getSystemStats.bind(statsController));
-router.get('/stats/whatsapp', statsController.getWhatsAppStats.bind(statsController));
-router.get('/stats/queue', statsController.getQueueStats.bind(statsController));
-
-// Cache management
-router.post('/cache/clear', asyncHandler(statsController.clearCache.bind(statsController)));
-router.get('/cache/stats', asyncHandler(statsController.getCacheStats.bind(statsController)));
 
 export default router;

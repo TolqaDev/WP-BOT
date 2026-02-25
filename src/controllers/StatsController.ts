@@ -99,6 +99,10 @@ export class StatsController {
 
   /**
    * Get comprehensive server statistics
+   * GET /api/stats
+   *
+   * Tüm sunucu istatistiklerini tek bir endpoint'ten döner:
+   * server, system, whatsapp, queue, messages, health
    */
   public getStats(req: Request, res: Response): void {
     try {
@@ -112,50 +116,6 @@ export class StatsController {
     }
   }
 
-  /**
-   * Get system statistics only
-   */
-  public getSystemStats(req: Request, res: Response): void {
-    try {
-      const system = this.getSystemInfo();
-      res.status(200).json(ResponseFormatter.success(system));
-    } catch (error) {
-      logger.error({ error }, 'Failed to get system stats');
-      res.status(500).json(
-        ResponseFormatter.serverError('Failed to get system stats')
-      );
-    }
-  }
-
-  /**
-   * Get WhatsApp connection statistics
-   */
-  public getWhatsAppStats(req: Request, res: Response): void {
-    try {
-      const whatsapp = this.getWhatsAppInfo();
-      res.status(200).json(ResponseFormatter.success(whatsapp));
-    } catch (error) {
-      logger.error({ error }, 'Failed to get WhatsApp stats');
-      res.status(500).json(
-        ResponseFormatter.serverError('Failed to get WhatsApp stats')
-      );
-    }
-  }
-
-  /**
-   * Get queue statistics
-   */
-  public getQueueStats(req: Request, res: Response): void {
-    try {
-      const queue = this.getQueueInfo();
-      res.status(200).json(ResponseFormatter.success(queue));
-    } catch (error) {
-      logger.error({ error }, 'Failed to get queue stats');
-      res.status(500).json(
-        ResponseFormatter.serverError('Failed to get queue stats')
-      );
-    }
-  }
 
   private collectStats(): ServerStats {
     const now = new Date();
@@ -320,88 +280,6 @@ export class StatsController {
       return `${minutes}m ${seconds % 60}s`;
     }
     return `${seconds}s`;
-  }
-
-  /**
-   * Get cache statistics
-   * GET /api/cache/stats
-   */
-  public async getCacheStats(req: Request, res: Response): Promise<void> {
-    try {
-      const cacheStats = (messageService as any).getCacheStats();
-      const memoryBefore = process.memoryUsage();
-
-      res.status(200).json(ResponseFormatter.success({
-        cache: cacheStats,
-        memory: {
-          heapUsed: Math.round(memoryBefore.heapUsed / 1024 / 1024 * 100) / 100,
-          heapTotal: Math.round(memoryBefore.heapTotal / 1024 / 1024 * 100) / 100,
-          rss: Math.round(memoryBefore.rss / 1024 / 1024 * 100) / 100,
-          external: Math.round(memoryBefore.external / 1024 / 1024 * 100) / 100,
-          unit: 'MB'
-        }
-      }));
-    } catch (error) {
-      logger.error({ error }, 'Failed to get cache stats');
-      res.status(500).json(
-        ResponseFormatter.serverError('Cache istatistikleri alınamadı')
-      );
-    }
-  }
-
-  /**
-   * Clear all caches and free up memory
-   * POST /api/cache/clear
-   */
-  public async clearCache(req: Request, res: Response): Promise<void> {
-    try {
-      const memoryBefore = process.memoryUsage();
-
-      // Clear message service caches
-      const clearedStats = (messageService as any).clearAllCaches();
-
-      // Clear queue completed jobs
-      const queueCleared = queueService.clearCompletedJobs();
-
-      // Force garbage collection if available
-      if (global.gc) {
-        global.gc();
-      }
-
-      const memoryAfter = process.memoryUsage();
-      const freedMemory = memoryBefore.heapUsed - memoryAfter.heapUsed;
-
-      logger.info({
-        clearedStats,
-        queueCleared,
-        freedMemory: Math.round(freedMemory / 1024 / 1024 * 100) / 100
-      }, 'Cache temizlendi');
-
-      res.status(200).json(ResponseFormatter.success({
-        message: 'Cache başarıyla temizlendi',
-        cleared: {
-          ...clearedStats,
-          queueJobs: queueCleared
-        },
-        memory: {
-          before: {
-            heapUsed: Math.round(memoryBefore.heapUsed / 1024 / 1024 * 100) / 100,
-            heapTotal: Math.round(memoryBefore.heapTotal / 1024 / 1024 * 100) / 100,
-          },
-          after: {
-            heapUsed: Math.round(memoryAfter.heapUsed / 1024 / 1024 * 100) / 100,
-            heapTotal: Math.round(memoryAfter.heapTotal / 1024 / 1024 * 100) / 100,
-          },
-          freed: Math.round(freedMemory / 1024 / 1024 * 100) / 100,
-          unit: 'MB'
-        }
-      }));
-    } catch (error) {
-      logger.error({ error }, 'Failed to clear cache');
-      res.status(500).json(
-        ResponseFormatter.serverError('Cache temizlenemedi')
-      );
-    }
   }
 }
 

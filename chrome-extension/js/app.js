@@ -6,11 +6,12 @@
 class WhatsAppBOTApp {
   constructor() {
     this.state = {
+      apiReady: false, // API bağlantısı doğrulandı mı
       isConnected: false,
       isConnecting: false,
       hasSession: false,
       sessionInfo: null,
-      currentTab: 'chats',
+      currentTab: 'dashboard',
       currentChatJid: null,
       currentChatFilter: 'all',
       newChatJid: null,
@@ -30,15 +31,25 @@ class WhatsAppBOTApp {
       this.setupEventListeners();
       await this.loadSettings();
 
-      // Bağlantı kontrolünde hata olursa da UI'ı göster
+      // API bağlantısını test et
       try {
         await this.checkConnection();
+        this.state.apiReady = true;
+        this.updateSidebarLock();
+
+        // Bağlıysa sohbetler tab'ına geç
+        if (this.state.isConnected) {
+          this.switchTab('chats');
+        }
       } catch (connectionError) {
         console.error('Initial connection check failed:', connectionError);
-        // Bağlantı hatası oldu ama uygulama çalışabilir
+        this.state.apiReady = false;
         this.state.isConnected = false;
         this.state.isConnecting = false;
         this.updateConnectionUI();
+        this.updateSidebarLock();
+        // API yoksa ayarları aç
+        this.expandApiSettings();
       }
 
       this.hideLoadingScreen();
@@ -53,7 +64,9 @@ class WhatsAppBOTApp {
       this.updateLoadingStatus('Bağlantı hatası');
       setTimeout(() => {
         this.hideLoadingScreen();
-        this.showSettings();
+        this.state.apiReady = false;
+        this.updateSidebarLock();
+        this.expandApiSettings();
       }, 1500);
     }
   }
@@ -85,25 +98,17 @@ class WhatsAppBOTApp {
       item.addEventListener('click', () => this.switchTab(item.dataset.tab));
     });
 
-    // Settings
-    document.getElementById('settings-btn').addEventListener('click', () => this.showSettings());
-    document.getElementById('close-settings').addEventListener('click', () => this.hideSettings());
-    document.getElementById('save-settings').addEventListener('click', () => this.saveSettings());
-    document.getElementById('test-connection').addEventListener('click', () => this.testConnection());
-    document.getElementById('toggle-api-key').addEventListener('click', () => this.toggleApiKeyVisibility());
+    // QR Panel - Inline API Settings
+    document.getElementById('qr-api-toggle')?.addEventListener('click', () => this.toggleApiSettings());
+    document.getElementById('save-settings')?.addEventListener('click', () => this.saveSettings());
+    document.getElementById('test-connection')?.addEventListener('click', () => this.testConnection());
+    document.getElementById('toggle-api-key')?.addEventListener('click', () => this.toggleApiKeyVisibility());
 
-    // Settings Tabs
-    document.querySelectorAll('.settings-tab').forEach(tab => {
-      tab.addEventListener('click', () => this.switchSettingsTab(tab.dataset.settingsTab));
-    });
-
-    // Server Settings
+    // Dashboard - Server Settings
     document.getElementById('save-server-settings')?.addEventListener('click', () => this.saveServerSettings());
     document.getElementById('refresh-server-settings')?.addEventListener('click', () => this.loadServerSettings());
     document.getElementById('retry-server-settings')?.addEventListener('click', () => this.loadServerSettings());
 
-    // Cache clear
-    document.getElementById('clear-cache-btn').addEventListener('click', () => this.clearCache());
 
     // Connection
     document.getElementById('connect-btn').addEventListener('click', () => this.connect());
@@ -172,6 +177,10 @@ class WhatsAppBOTApp {
     const datetimeInput = document.getElementById('single-datetime');
     if (datetimeInput) {
       datetimeInput.min = utils.getMinScheduleDate();
+      // Focus'a geldiğinde min'i güncelle
+      datetimeInput.addEventListener('focus', () => {
+        datetimeInput.min = utils.getMinScheduleDate();
+      });
     }
 
     // Bulk Message Form - type selector buttons
@@ -196,6 +205,11 @@ class WhatsAppBOTApp {
         }
       }
     });
+
+    // Bulk datetime focus'ta min güncelle
+    document.getElementById('bulk-start-datetime')?.addEventListener('focus', (e) => {
+      e.target.min = utils.getMinScheduleDate();
+    });
     document.getElementById('bulk-send-btn').addEventListener('click', () => this.handleBulkSend());
 
 
@@ -208,6 +222,18 @@ class WhatsAppBOTApp {
   // ==================== TAB SWITCHING ====================
 
   switchTab(tabId) {
+    // API bağlantısı yoksa sadece dashboard'a izin ver
+    if (!this.state.apiReady && tabId !== 'dashboard') {
+      utils.toast('Önce API bağlantısını yapılandırın', 'warning');
+      return;
+    }
+
+    // WhatsApp bağlı değilse sohbet ve gönderime izin verme
+    if (tabId !== 'dashboard' && !this.state.isConnected) {
+      utils.toast('WhatsApp bağlı değil. Önce bağlantı kurun.', 'warning');
+      return;
+    }
+
     // Update sidebar
     document.querySelectorAll('.sidebar-nav-item').forEach(item => {
       item.classList.toggle('active', item.dataset.tab === tabId);
@@ -353,6 +379,9 @@ class WhatsAppBOTApp {
         document.getElementById('session-name').textContent = sessionInfo.name || 'WhatsApp Kullanıcısı';
         document.getElementById('session-phone').textContent = utils.formatPhone(sessionInfo.phone);
       }
+
+      // Bağlandığında sunucu ayarlarını yükle
+      this.loadServerSettings();
     } else {
       utils.show(qrView);
       utils.hide(connectedView);
@@ -363,6 +392,9 @@ class WhatsAppBOTApp {
         qrImage.src = ''; // Clear old QR
       }
     }
+
+    // Sidebar kilit durumunu güncelle
+    this.updateSidebarLock();
   }
 
   async connect() {
@@ -647,41 +679,67 @@ class WhatsAppBOTApp {
 
   // ==================== SETTINGS ====================
 
-  showSettings() {
-    utils.show('settings-panel');
-    // Default to API tab, and reset to it
-    this.switchSettingsTab('api');
-  }
-
-  hideSettings() {
-    utils.hide('settings-panel');
-  }
-
-  switchSettingsTab(tabId) {
-    // Update tab buttons
-    document.querySelectorAll('.settings-tab').forEach(tab => {
-      tab.classList.toggle('active', tab.dataset.settingsTab === tabId);
-    });
-
-    // Update tab content
-    document.querySelectorAll('.settings-tab-content').forEach(content => {
-      content.classList.toggle('active', content.id === `settings-tab-${tabId}`);
-    });
-
-    // Load server settings when switching to that tab
-    if (tabId === 'server') {
-      this.loadServerSettings();
+  /**
+   * API ayarları alanını aç/kapat (QR panelindeki)
+   */
+  toggleApiSettings() {
+    const body = document.getElementById('qr-api-body');
+    const chevron = document.getElementById('qr-api-chevron');
+    if (body) {
+      const isOpen = !body.classList.contains('hidden');
+      if (isOpen) {
+        body.classList.add('hidden');
+        chevron?.classList.remove('open');
+      } else {
+        body.classList.remove('hidden');
+        chevron?.classList.add('open');
+      }
     }
   }
 
-  async loadServerSettings() {
-    const loadingEl = document.getElementById('server-settings-loading');
-    const contentEl = document.getElementById('server-settings-content');
-    const errorEl = document.getElementById('server-settings-error');
+  /**
+   * API ayarları alanını zorla aç
+   */
+  expandApiSettings() {
+    const body = document.getElementById('qr-api-body');
+    const chevron = document.getElementById('qr-api-chevron');
+    if (body) {
+      body.classList.remove('hidden');
+      chevron?.classList.add('open');
+    }
+  }
 
-    utils.show(loadingEl);
-    utils.hide(contentEl);
-    utils.hide(errorEl);
+  /**
+   * Sidebar kilitlenmesini güncelle - API yoksa diğer tab'lar disabled
+   */
+  updateSidebarLock() {
+    const canNavigate = this.state.apiReady && this.state.isConnected;
+    document.querySelectorAll('.sidebar-nav-item').forEach(item => {
+      const tab = item.dataset.tab;
+      if (tab !== 'dashboard') {
+        if (!canNavigate) {
+          item.classList.add('locked');
+          if (!this.state.apiReady) {
+            item.setAttribute('title', 'Önce API bağlantısını yapılandırın');
+          } else {
+            item.setAttribute('title', 'WhatsApp bağlı değil');
+          }
+        } else {
+          item.classList.remove('locked');
+          item.setAttribute('title', tab === 'chats' ? 'Sohbetler' : 'Mesaj Gönderimi');
+        }
+      }
+    });
+  }
+
+  async loadServerSettings() {
+    const loadingEl = document.getElementById('dashboard-server-loading');
+    const contentEl = document.getElementById('dashboard-server-content');
+    const errorEl = document.getElementById('dashboard-server-error');
+
+    if (loadingEl) utils.show(loadingEl);
+    if (contentEl) utils.hide(contentEl);
+    if (errorEl) utils.hide(errorEl);
 
     try {
       const response = await api.getAppSettings();
@@ -770,42 +828,6 @@ class WhatsAppBOTApp {
     }
   }
 
-  async clearCache() {
-    const btn = document.getElementById('clear-cache-btn');
-
-    try {
-      btn.disabled = true;
-      btn.innerHTML = '<span class="spinner"></span>';
-
-      const response = await api.clearCache();
-
-      if (response.success) {
-        const data = response.data;
-        const freedMB = data.memory?.freed || 0;
-        const clearedChats = data.cleared?.clearedChats || 0;
-        const clearedMessages = data.cleared?.clearedMessages || 0;
-
-        utils.toast(
-          `Cache temizlendi! ${freedMB} MB bellek serbest bırakıldı. (${clearedChats} sohbet, ${clearedMessages} mesaj)`,
-          'success'
-        );
-
-        // Refresh current tab data
-        if (this.state.currentTab === 'chats') {
-          this.loadChats();
-        } else if (this.state.currentTab === 'dashboard') {
-          this.loadStats();
-        }
-      } else {
-        utils.toast('Cache temizlenemedi', 'error');
-      }
-    } catch (error) {
-      utils.toast('Cache temizleme hatası: ' + error.message, 'error');
-    } finally {
-      btn.disabled = false;
-      btn.innerHTML = '<i class="fas fa-broom"></i>';
-    }
-  }
 
   async saveSettings() {
     const url = document.getElementById('api-url').value.trim();
@@ -819,9 +841,29 @@ class WhatsAppBOTApp {
     try {
       utils.setLoading('save-settings', true);
       await api.saveSettings(url, key);
-      utils.toast('Ayarlar kaydedildi', 'success');
-      this.hideSettings();
-      await this.checkConnection();
+      utils.toast('API ayarları kaydedildi', 'success');
+
+      // API bağlantısını test et
+      try {
+        await this.checkConnection();
+        this.state.apiReady = true;
+        this.updateSidebarLock();
+
+        // API ayarları alanını kapat
+        const body = document.getElementById('qr-api-body');
+        const chevron = document.getElementById('qr-api-chevron');
+        if (body) body.classList.add('hidden');
+        if (chevron) chevron.classList.remove('open');
+
+        // Bağlıysa sohbetlere geç
+        if (this.state.isConnected) {
+          this.switchTab('chats');
+        }
+      } catch (e) {
+        // API bağlantısı yok ama ayarlar kaydedildi
+        this.state.apiReady = false;
+        this.updateSidebarLock();
+      }
     } catch (error) {
       utils.toast(error.message, 'error');
     } finally {
@@ -835,6 +877,8 @@ class WhatsAppBOTApp {
       const response = await api.getStatus();
 
       if (response.success) {
+        this.state.apiReady = true;
+        this.updateSidebarLock();
         utils.toast('Bağlantı başarılı!', 'success');
       } else {
         utils.toast('Bağlantı başarısız', 'error');
@@ -1550,6 +1594,19 @@ class WhatsAppBOTApp {
       return;
     }
 
+    // Geçmiş zaman kontrolü
+    if (isScheduled && datetime) {
+      const scheduledTime = new Date(datetime);
+      const now = new Date();
+      const minTime = new Date(now.getTime() + 60000); // En az 1 dakika sonrası
+      if (scheduledTime <= minTime) {
+        utils.toast('Gönderim zamanı en az 1 dakika sonrası olmalıdır', 'warning');
+        // min attribute'u güncelle
+        document.getElementById('single-datetime').min = utils.getMinScheduleDate();
+        return;
+      }
+    }
+
     const btn = document.getElementById('single-send-btn');
 
     // Bağlantı kontrolü
@@ -1610,7 +1667,8 @@ class WhatsAppBOTApp {
         }
       }
     } catch (error) {
-      utils.toast(error.message, 'error');
+      const errorMsg = error.data?.error || error.data?.message || error.message || 'İşlem başarısız';
+      utils.toast(errorMsg, 'error');
     } finally {
       utils.setLoading(btn, false);
     }
@@ -1671,6 +1729,24 @@ class WhatsAppBOTApp {
       return;
     }
 
+    // Geçmiş zaman kontrolü (ileri tarih zamanlaması)
+    if (useSchedule && scheduleDateTime) {
+      const scheduledTime = new Date(scheduleDateTime);
+      const now = new Date();
+      const minTime = new Date(now.getTime() + 60000);
+      if (scheduledTime <= minTime) {
+        utils.toast('Başlangıç zamanı en az 1 dakika sonrası olmalıdır', 'warning');
+        const dtInput = document.getElementById('bulk-start-datetime');
+        if (dtInput) dtInput.min = utils.getMinScheduleDate();
+        return;
+      }
+    }
+
+    if (useSchedule && !scheduleDateTime) {
+      utils.toast('Başlangıç zamanı seçin', 'warning');
+      return;
+    }
+
     const btn = document.getElementById('bulk-send-btn');
 
     // Bağlantı kontrolü
@@ -1726,7 +1802,8 @@ class WhatsAppBOTApp {
         await this.loadBulkJobs();
       }
     } catch (error) {
-      utils.toast(error.message, 'error');
+      const errorMsg = error.data?.error || error.data?.message || error.message || 'İşlem başarısız';
+      utils.toast(errorMsg, 'error');
     } finally {
       utils.setLoading(btn, false);
     }
@@ -1851,7 +1928,7 @@ class WhatsAppBOTApp {
 
   async showJobDetails(jobId) {
     try {
-      const response = await api.getBulkJobDetails(jobId);
+      const response = await api.getBulkJobDetailedStatus(jobId);
       if (!response.success || !response.data) {
         utils.toast('İş detayları alınamadı', 'error');
         return;
@@ -2252,8 +2329,12 @@ class WhatsAppBOTApp {
       (message) => {
         console.log('New message received:', message);
 
+        // JID normalize karşılaştırma
+        const msgFrom = (message.from || '').split('@')[0].split(':')[0];
+        const currentChat = (this.state.currentChatJid || '').split('@')[0].split(':')[0];
+
         // If the message is not for the current open chat, mark as unread
-        if (message.from !== this.state.currentChatJid) {
+        if (msgFrom !== currentChat || !currentChat) {
           this.state.unreadChats.add(message.from);
           this.updateUnreadBadge();
 
@@ -2460,34 +2541,44 @@ class WhatsAppBOTApp {
     const messageJid = message.from || message.jid;
     const isOutgoing = message.fromMe === true || message.isFromMe === true;
 
-    // Gelen mesajlar için JID kontrolü, gönderilen mesajlar için her zaman ekle
-    if (!isOutgoing && messageJid !== this.state.currentChatJid) return;
+    // JID normalize karşılaştırması - numara kısmını çıkararak karşılaştır
+    const normalizeJid = (jid) => jid ? jid.split('@')[0].split(':')[0] : '';
+    const messageNumber = normalizeJid(messageJid);
+    const currentNumber = normalizeJid(this.state.currentChatJid);
 
-    // Duplicate kontrolü - aynı mesaj zaten var mı?
+    // Gelen mesajlar için JID kontrolü, gönderilen mesajlar için her zaman ekle
+    if (!isOutgoing && messageNumber !== currentNumber) return;
+
+    // Duplicate kontrolü - message ID ile
     const messageId = message.id || message.messageId;
     if (messageId) {
       const existingMsg = messagesContainer.querySelector(`[data-msg-id="${messageId}"]`);
       if (existingMsg) {
-        console.log('Duplicate message ignored:', messageId);
+        console.log('Duplicate message ignored (ID match):', messageId);
         return;
       }
     }
 
-    // Aynı içerik ve zaman kontrolü (ID olmayan mesajlar için)
+    // İçerik ve zaman bazlı duplicate kontrolü
     const content = message.content || message.message || message.body || '';
-    const time = new Date(message.timestamp || Date.now()).toLocaleTimeString('tr-TR', {
+    const timestamp = message.timestamp ? new Date(message.timestamp).getTime() : Date.now();
+    const time = new Date(timestamp).toLocaleTimeString('tr-TR', {
       hour: '2-digit',
       minute: '2-digit'
     });
 
-    // Son 5 mesajda aynı içerik ve zaman varsa duplicate
+    // Son 10 mesajda aynı içerik + aynı yön + 5 saniye içinde = duplicate
     const recentMessages = messagesContainer.querySelectorAll('.message-bubble');
-    const recentArray = Array.from(recentMessages).slice(-5);
+    const recentArray = Array.from(recentMessages).slice(-10);
     for (const recent of recentArray) {
       const recentText = recent.querySelector('.message-text')?.textContent || '';
-      const recentTime = recent.querySelector('.message-time')?.textContent || '';
-      if (recentText === content && recentTime === time) {
-        console.log('Duplicate message (content match) ignored');
+      const recentIsOutgoing = recent.classList.contains('outgoing');
+      const recentTimestamp = parseInt(recent.dataset.timestamp || '0');
+
+      if (recentText === content &&
+          recentIsOutgoing === isOutgoing &&
+          Math.abs(timestamp - recentTimestamp) < 5000) {
+        console.log('Duplicate message ignored (content+time match)');
         return;
       }
     }
@@ -2499,6 +2590,7 @@ class WhatsAppBOTApp {
     const msgDiv = document.createElement('div');
     msgDiv.className = `message-bubble ${isOutgoing ? 'outgoing' : 'incoming'}`;
     if (messageId) msgDiv.setAttribute('data-msg-id', messageId);
+    msgDiv.setAttribute('data-timestamp', String(timestamp));
 
     msgDiv.innerHTML = `
       <div class="message-text">${utils.escapeHtml(content)}</div>

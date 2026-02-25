@@ -8,7 +8,6 @@ interface RateLimitEntry {
 }
 
 const requestCounts = new Map<string, RateLimitEntry>();
-const readRequestCounts = new Map<string, RateLimitEntry>();
 
 // Cleanup old entries periodically
 setInterval(() => {
@@ -16,11 +15,6 @@ setInterval(() => {
   for (const [key, entry] of requestCounts.entries()) {
     if (entry.resetTime < now) {
       requestCounts.delete(key);
-    }
-  }
-  for (const [key, entry] of readRequestCounts.entries()) {
-    if (entry.resetTime < now) {
-      readRequestCounts.delete(key);
     }
   }
 }, 60000);
@@ -68,54 +62,19 @@ export const rateLimiter = (
   next();
 };
 
-/**
- * Relaxed rate limiter for read-only endpoints (GET requests)
- * Allows 3x the normal limit
- */
-export const readRateLimiter = (
-  req: Request,
-  res: Response,
-  next: NextFunction
-): void => {
-  const ip = req.ip || req.socket.remoteAddress || 'unknown';
-  const now = Date.now();
-  const maxRequests = config.rateLimit.maxRequests * 3; // 3x normal limit
-
-  let entry = readRequestCounts.get(ip);
-
-  if (!entry || entry.resetTime < now) {
-    entry = {
-      count: 1,
-      resetTime: now + config.rateLimit.windowMs,
-    };
-    readRequestCounts.set(ip, entry);
-  } else {
-    entry.count++;
-  }
-
-  const remaining = Math.max(0, maxRequests - entry.count);
-  const resetIn = Math.ceil((entry.resetTime - now) / 1000);
-
-  res.setHeader('X-RateLimit-Limit', maxRequests);
-  res.setHeader('X-RateLimit-Remaining', remaining);
-  res.setHeader('X-RateLimit-Reset', resetIn);
-
-  if (entry.count > maxRequests) {
-    res.status(429).json(
-      ResponseFormatter.error(
-        `Çok fazla istek. ${resetIn} saniye sonra tekrar deneyin.`,
-        'Rate limit exceeded'
-      )
-    );
-    return;
-  }
-
-  next();
-};
-
 // More aggressive rate limiting for specific endpoints
 export const strictRateLimiter = (maxRequests: number, windowMs: number) => {
   const strictCounts = new Map<string, RateLimitEntry>();
+
+  // Cleanup old entries periodically
+  setInterval(() => {
+    const now = Date.now();
+    for (const [key, entry] of strictCounts.entries()) {
+      if (entry.resetTime < now) {
+        strictCounts.delete(key);
+      }
+    }
+  }, Math.max(windowMs, 60000));
 
   return (req: Request, res: Response, next: NextFunction): void => {
     const ip = req.ip || req.socket.remoteAddress || 'unknown';

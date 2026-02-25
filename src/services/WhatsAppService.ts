@@ -1140,7 +1140,10 @@ class WhatsAppService extends EventEmitter {
       } else if (options.url) {
         const response = await fetch(options.url);
         if (!response.ok) {
-          throw new Error(`Medya URL'den indirilemedi: ${response.status}`);
+          return {
+            success: false,
+            error: `Medya URL'den indirilemedi: ${response.status}`,
+          };
         }
         const arrayBuffer = await response.arrayBuffer();
         mediaBuffer = Buffer.from(arrayBuffer);
@@ -1321,48 +1324,6 @@ class WhatsAppService extends EventEmitter {
     }
   }
 
-  public async deleteMessage(jid: string, messageId: string, forEveryone = true): Promise<SendMessageResult> {
-    if (!this.socket || !this.state.isConnected) {
-      return {
-        success: false,
-        error: 'WhatsApp bağlantısı yok',
-      };
-    }
-
-    try {
-      const formattedJid = this.formatJid(jid);
-
-      if (this.isGroupJid(formattedJid)) {
-        return {
-          success: false,
-          error: 'Grup sohbetleri desteklenmiyor',
-        };
-      }
-
-      const key = {
-        remoteJid: formattedJid,
-        id: messageId,
-        fromMe: true,
-      };
-
-      await this.socket.sendMessage(formattedJid, { delete: key });
-
-      logger.info({ jid: formattedJid, messageId, forEveryone }, 'Mesaj silindi');
-
-      return {
-        success: true,
-        messageId,
-      };
-    } catch (error) {
-      const errorMessage = error instanceof Error ? error.message : 'Bilinmeyen hata';
-      logger.error({ error, jid, messageId }, 'Mesaj silinemedi');
-
-      return {
-        success: false,
-        error: errorMessage,
-      };
-    }
-  }
 
   /**
    * Get all chats from WhatsApp store
@@ -1446,47 +1407,6 @@ class WhatsAppService extends EventEmitter {
     return messages.reverse();
   }
 
-  public async archiveChat(jid: string, archive: boolean): Promise<void> {
-    if (!this.socket || !this.state.isConnected) {
-      throw new Error('WhatsApp bağlantısı yok');
-    }
-
-    const formattedJid = this.formatJid(jid);
-
-    if (this.isGroupJid(formattedJid)) {
-      throw new Error('Grup sohbetleri desteklenmiyor');
-    }
-
-    logger.info({ jid: formattedJid, archive }, 'Sohbet arşiv durumu değiştirildi (yerel)');
-  }
-
-  public async muteChat(jid: string, mute: boolean, duration?: number): Promise<void> {
-    if (!this.socket || !this.state.isConnected) {
-      throw new Error('WhatsApp bağlantısı yok');
-    }
-
-    const formattedJid = this.formatJid(jid);
-
-    if (this.isGroupJid(formattedJid)) {
-      throw new Error('Grup sohbetleri desteklenmiyor');
-    }
-
-    logger.info({ jid: formattedJid, mute, duration }, 'Sohbet sessiz durumu değiştirildi (yerel)');
-  }
-
-  public async pinChat(jid: string, pin: boolean): Promise<void> {
-    if (!this.socket || !this.state.isConnected) {
-      throw new Error('WhatsApp bağlantısı yok');
-    }
-
-    const formattedJid = this.formatJid(jid);
-
-    if (this.isGroupJid(formattedJid)) {
-      throw new Error('Grup sohbetleri desteklenmiyor');
-    }
-
-    logger.info({ jid: formattedJid, pin }, 'Sohbet sabitleme durumu değiştirildi (yerel)');
-  }
 
   /**
    * Mark all unread messages from a JID as read
