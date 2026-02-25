@@ -1,66 +1,108 @@
-# WhatsApp BOT API
+# WhatsApp BOT
 
-> **v2.0.0** - TypeScript ve Baileys kütüphanesi ile oluşturulmuş, MVC mimarisine sahip profesyonel WhatsApp BOT API.
+> **v2.0.0** — TypeScript + Baileys ile geliştirilmiş, MVC mimarisine sahip profesyonel WhatsApp BOT API ve Chrome Addon.
+
+<p align="center">
+  <img src="public/logo.png" alt="WhatsApp BOT" width="120">
+</p>
+
+---
+
+## 📑 İçindekiler
+
+- [Özellikler](#-özellikler)
+- [Mimari](#-mimari)
+- [Kurulum](#-kurulum)
+- [Ortam Değişkenleri](#-ortam-değişkenleri)
+- [API Referansı](#-api-referansı)
+- [Chrome Addon](#-chrome-addon--whatsapp-bot-manager)
+- [Postman Collection](#-postman-collection)
+- [Lisans](#-lisans)
+
+---
 
 ## 🚀 Özellikler
 
-### Temel Özellikler
-- **QR ile Oturum Açma**: WhatsApp Web bağlantısı için QR kod desteği (SSE real-time)
-- **Session Persistence**: PM2/sunucu yeniden başlatıldığında otomatik bağlanma (QR gerektirmez)
-- **Mesaj Gönderme/Alma**: Text, resim, video, ses, doküman desteği
-- **Otomatik Typing Göstergesi**: Mesaj gönderilmeden önce "yazıyor..." göstergesi (BOT algılamasını engeller)
+| Kategori | Özellikler |
+|----------|-----------|
+| **Bağlantı** | QR ile oturum açma (SSE real-time) · Session persistence (PM2/restart sonrası otomatik bağlanma) · Otomatik arama reddi |
+| **Mesajlaşma** | Text, resim, video, ses, doküman gönderimi · Otomatik typing göstergesi · Mesaj geçmişi (session boyunca) |
+| **Zamanlama** | İleri tarihe mesaj zamanlama · Düzenleme ve iptal · Minimum 30 sn ileri zaman kontrolü |
+| **Toplu Gönderim** | In-memory kuyruk sistemi · Rastgele gecikme (min/max) · Zaman penceresi (ör: 09:00–18:00) · Duraklat/Devam/İptal |
+| **Sohbet** | Filtreleme (okunmamış, arşivli, ülke kodu) · Arama · Arşivleme, sabitleme, sessize alma |
+| **Güvenlik** | API Key auth · Rate limiting · CORS whitelist · Grup koruması · Request tracing (X-Request-ID) |
+| **Gerçek Zamanlı** | SSE ile QR stream · SSE ile mesaj stream · Terminal log stream |
+| **Addon** | Chrome Extension ile tam yönetim paneli — QR, sohbet, gönderim, istatistik |
 
-### Gelişmiş Özellikler
-- **Zamanlanmış Mesajlar**: Mesajları ileri tarihe zamanlama, düzenleme ve iptal
-- **Mesaj Geçmişi**: WhatsApp'tan gerçek mesaj geçmişi çekme (session boyunca)
-- **Sohbet Filtreleme**: Arşivlenmiş/okunmamış/ülke koduna göre filtreleme
-- **Toplu Mesaj Gönderme**: In-memory kuyruk sistemi ile toplu mesaj
+> **⚠️ Not:** Mesaj geçmişi oturum süresince bellekte tutulur. Uygulama yeniden başlatıldığında geçmiş sıfırlanır, yeni mesajlar tekrar kaydedilir.
 
-### Güvenlik & Performans
-- **Kişi Kontrolü**: Numaranın WhatsApp'ta kayıtlı olup olmadığını kontrol
-- **Sohbet İşlemleri**: Arşivleme, sabitleme, sessiz alma, yazıyor göstergesi
-- **Grup Koruması**: Grup sohbetlerine erişim tamamen engelli
-- **SSE Desteği**: Gerçek zamanlı QR ve mesaj güncellemeleri
-- **Rate Limiting**: Spam koruması
-- **Cache Management**: Bellek optimizasyonu ve temizleme
-- **Request Tracing**: X-Request-ID ile istek takibi
-- **TypeScript**: Tam tip güvenliği
+> **✅ Session Persistence:** PM2 veya sunucu restart sonrası WhatsApp oturumu korunur. Sadece `logout` endpoint'i ile oturum silinir.
 
-> **⚠️ Önemli Not:** Mesaj geçmişi WhatsApp oturumu süresince bellekte tutulur. Uygulama yeniden başlatıldığında geçmiş sıfırlanır ancak yeni gelen/gönderilen mesajlar tekrar kaydedilir.
+---
 
-> **✅ Session Persistence:** PM2 veya sunucu yeniden başlatıldığında WhatsApp oturumu korunur ve otomatik olarak bağlanır. Sadece "Çıkış Yap" (logout) endpoint'i kullanıldığında oturum silinir ve tekrar QR kod okutmanız gerekir.
-
-## 📁 Proje Yapısı
+## 🏗 Mimari
 
 ```
-src/
-├── app.ts                    # Ana uygulama başlatıcı
-├── server.ts                 # Express sunucu kurulumu
-├── config/
-│   └── index.ts              # Ortam değişkenleri
-├── controllers/
-│   ├── AuthController.ts     # Kimlik doğrulama
-│   ├── MessageController.ts  # Mesaj işlemleri
-│   └── BulkController.ts     # Toplu mesaj
-├── services/
-│   ├── WhatsAppService.ts    # Baileys entegrasyonu
-│   ├── MessageService.ts     # Mesaj servisi
-│   └── QueueService.ts       # Kuyruk yönetimi
-├── middlewares/
-│   ├── errorHandler.ts       # Hata yakalama
-│   ├── rateLimiter.ts        # Rate limiting
-│   └── connectionGuard.ts    # Bağlantı kontrolü
-├── routes/
-│   └── index.ts              # API rotaları
-├── types/
-│   └── index.ts              # TypeScript tipleri
-├── views/
-│   └── ResponseFormatter.ts  # JSON formatları
-└── utils/
-    └── logger.ts             # Loglama
+WhatsApp-BOT/
+├── src/                          # Backend (TypeScript)
+│   ├── app.ts                    # Ana uygulama başlatıcı
+│   ├── server.ts                 # Express sunucu kurulumu
+│   ├── config/
+│   │   └── index.ts              # Ortam değişkenleri
+│   ├── controllers/
+│   │   ├── AuthController.ts     # Kimlik doğrulama & QR
+│   │   ├── MessageController.ts  # Mesaj işlemleri & zamanlama
+│   │   ├── BulkController.ts     # Toplu mesaj yönetimi
+│   │   ├── SettingsController.ts # Uygulama ayarları
+│   │   ├── StatsController.ts    # İstatistikler
+│   │   └── TerminalController.ts # Terminal log stream
+│   ├── services/
+│   │   ├── WhatsAppService.ts    # Baileys entegrasyonu
+│   │   ├── MessageService.ts     # Mesaj servisi & geçmiş
+│   │   ├── QueueService.ts       # Toplu gönderim kuyruğu
+│   │   ├── SchedulerService.ts   # Zamanlanmış mesaj motoru
+│   │   └── SettingsService.ts    # Ayar yönetimi
+│   ├── middlewares/
+│   │   ├── auth.ts               # API Key doğrulama
+│   │   ├── connectionGuard.ts    # WhatsApp bağlantı kontrolü
+│   │   ├── errorHandler.ts       # Global hata yakalama
+│   │   ├── rateLimiter.ts        # Rate limiting
+│   │   └── sseGuard.ts           # SSE CORS kontrolü
+│   ├── routes/
+│   │   └── index.ts              # Tüm API rotaları
+│   ├── types/
+│   │   └── index.ts              # TypeScript tipleri
+│   ├── views/
+│   │   └── ResponseFormatter.ts  # Standart JSON response
+│   └── utils/
+│       └── logger.ts             # Pino logger
+│
+├── chrome-extension/             # Chrome Addon
+│   ├── manifest.json             # Manifest V3
+│   ├── popup.html                # Ana arayüz
+│   ├── js/
+│   │   ├── api.js                # API iletişim katmanı
+│   │   ├── app.js                # Uygulama mantığı
+│   │   └── utils.js              # Yardımcı fonksiyonlar
+│   ├── styles/
+│   │   └── main.css              # Dark tema stilleri
+│   └── icons/                    # Extension ikonları
+│
+├── postman/                      # Postman Collection & Environment
+└── public/                       # Statik dosyalar
 ```
 
-## 🛠️ Kurulum
+---
+
+## 🛠 Kurulum
+
+### Gereksinimler
+
+- **Node.js** 18+
+- **npm** veya **yarn**
+- Chrome 88+ (Addon için)
+
+### Backend
 
 ```bash
 # Bağımlılıkları yükle
@@ -69,243 +111,172 @@ npm install
 # Geliştirme modunda çalıştır
 npm run dev
 
-# veya watch modunda
+# Watch modunda çalıştır (otomatik yeniden başlatma)
 npm run dev:watch
 
-# Production build
+# Production build & çalıştır
 npm run build
 npm start
 ```
 
+### PM2 ile Production
+
+```bash
+npm run build
+pm2 start dist/app.js --name whatsapp-bot
+```
+
+---
+
 ## ⚙️ Ortam Değişkenleri
 
-`.env` dosyası oluşturun:
+Proje kök dizininde `.env` dosyası oluşturun:
 
 ```env
+# Sunucu
 PORT=3000
 NODE_ENV=development
 SESSION_PATH=./auth_info
 
-# Timezone - tüm zamanlanmış mesajlar ve loglar bu saat dilimini kullanır
+# Saat dilimi (tüm zamanlamalar ve loglar bu dilimi kullanır)
 TZ=Europe/Istanbul
 
-# WhatsApp Özellikleri
+# WhatsApp Davranışı
 AUTO_READ=true
 NOTIFY=false
-
-# Otomatik Arama Reddi
 AUTO_REJECT_CALLS=true
 
-# Kuyruk Ayarları
+# Kuyruk
 QUEUE_DELAY_MS=3000
 QUEUE_MAX_RETRY=3
 
 # Rate Limiting
 RATE_LIMIT_WINDOW_MS=60000
 RATE_LIMIT_MAX_REQUESTS=100
+
+# CORS (Chrome Extension ID'nizi ekleyin)
+CORS_WHITELIST=chrome-extension://YOUR_EXTENSION_ID,http://localhost:3000
+
+# API Key (boş bırakılırsa auth devre dışı)
+API_KEY=
 ```
 
-## 📡 API Endpoints
+---
+
+## 📡 API Referansı
+
+Tüm yanıtlar standart formatta döner:
+
+**Başarılı yanıt:**
+
+```json
+{
+  "success": true,
+  "data": {},
+  "message": "İşlem başarılı",
+  "timestamp": "2026-02-25T12:00:00.000Z"
+}
+```
+
+**Hata yanıtı:**
+
+```json
+{
+  "success": false,
+  "error": "Hata detayı",
+  "message": "Hata mesajı",
+  "timestamp": "2026-02-25T12:00:00.000Z"
+}
+```
 
 ### Kimlik Doğrulama
 
 | Method | Endpoint | Açıklama |
 |--------|----------|----------|
-| GET | `/api/auth/qr` | QR kodu al (base64) |
-| GET | `/api/auth/qr/image` | QR kodu PNG dosyası olarak al |
-| GET | `/api/auth/qr/stream` | SSE ile QR akışı |
-| GET | `/api/auth/status` | Bağlantı durumu |
-| POST | `/api/auth/logout` | Oturumu kapat |
+| `GET` | `/api/auth/qr` | QR kodu al (base64) |
+| `GET` | `/api/auth/qr/image` | QR kodu PNG olarak al |
+| `GET` | `/api/auth/qr/stream` | 🔴 SSE — QR akışı (real-time) |
+| `GET` | `/api/auth/status` | Bağlantı durumu |
+| `POST` | `/api/auth/logout` | Oturumu kapat ve session'ı sil |
+| `POST` | `/api/auth/cancel` | Bağlanma girişimini iptal et |
 
 ### Mesajlar
 
 | Method | Endpoint | Açıklama |
 |--------|----------|----------|
-| POST | `/api/messages/send` | Mesaj gönder (text, image, video, audio, document) |
-| GET | `/api/messages/chats` | Tüm sohbetler (filtreleme destekli) |
-| GET | `/api/messages/history/:jid` | Mesaj geçmişi (sayfalama destekli) |
-| DELETE | `/api/messages/history/:jid?` | Geçmişi temizle |
-| GET | `/api/messages/stats` | Sohbet istatistikleri |
-
-### SSE Streams (Gerçek Zamanlı)
-
-> **Güvenlik:** SSE endpoint'leri `CORS_WHITE_LIST` ayarındaki IP/domain'lerden erişime izin verir.
-
-| Method | Endpoint | Açıklama |
-|--------|----------|----------|
-| GET | `/api/auth/qr/stream` | QR kodunu gerçek zamanlı dinle |
-| GET | `/api/messages/stream` | Mesajları gerçek zamanlı dinle |
-| GET | `/api/messages/stream?jid=905xx` | Belirli numaradan mesajları dinle |
-
-### Zamanlanmış Mesajlar
-
-| Method | Endpoint | Açıklama |
-|--------|----------|----------|
-| POST | `/api/messages/schedule` | Mesaj zamanla |
-| GET | `/api/messages/scheduled` | Zamanlanmış mesajları listele |
-| GET | `/api/messages/scheduled/:id` | Zamanlanmış mesaj detayı |
-| PUT | `/api/messages/scheduled/:id` | Zamanlanmış mesajı düzenle |
-| DELETE | `/api/messages/scheduled/:id` | Zamanlanmış mesajı iptal et |
-| DELETE | `/api/messages/scheduled/completed` | Tamamlanmış zamanlanmış mesajları temizle |
-
-### Kişi & Profil
-
-| Method | Endpoint | Açıklama |
-|--------|----------|----------|
-| GET | `/api/messages/check/:phone` | Numara WhatsApp'ta kayıtlı mı kontrol et |
-| GET | `/api/messages/profile/:jid` | Profil bilgisi al |
+| `POST` | `/api/messages/send` | Mesaj gönder (text, image, video, audio, document) |
+| `GET` | `/api/messages/chats` | Sohbet listesi (filtreleme + sayfalama) |
+| `GET` | `/api/messages/history/:jid` | Mesaj geçmişi |
+| `GET` | `/api/messages/stats` | Sohbet istatistikleri |
+| `GET` | `/api/messages/check/:phone` | Numara WhatsApp'ta kayıtlı mı? |
+| `GET` | `/api/messages/profile/:jid` | Profil bilgisi |
 
 ### Sohbet İşlemleri
 
 | Method | Endpoint | Açıklama |
 |--------|----------|----------|
-| POST | `/api/messages/typing/:jid` | Yazıyor göstergesi gönder |
-| POST | `/api/messages/read/:jid` | Sohbeti okundu olarak işaretle |
-| POST | `/api/messages/archive/:jid` | Sohbeti arşivle/arşivden çıkar |
-| POST | `/api/messages/pin/:jid` | Sohbeti sabitle/sabitlemeyi kaldır |
-| POST | `/api/messages/mute/:jid` | Sohbeti sessize al/sessizden çıkar |
-| DELETE | `/api/messages/:jid/:messageId` | Mesaj sil |
+| `POST` | `/api/messages/typing/:jid` | Yazıyor göstergesi gönder |
+| `POST` | `/api/messages/read/:jid` | Okundu olarak işaretle |
 
-### Toplu Mesaj (Gelişmiş)
+### Zamanlanmış Mesajlar
 
 | Method | Endpoint | Açıklama |
 |--------|----------|----------|
-| POST | `/api/bulk/send` | Toplu mesaj kuyruğu oluştur |
-| GET | `/api/bulk/jobs` | Tüm işler |
-| GET | `/api/bulk/status/:jobId` | İş durumu |
-| GET | `/api/bulk/status/:jobId/detailed` | Detaylı durum (alıcı bazlı) |
-| POST | `/api/bulk/pause/:jobId` | İşi duraklat |
-| POST | `/api/bulk/resume/:jobId` | İşi devam ettir |
-| POST | `/api/bulk/cancel/:jobId` | İşi iptal et |
-| DELETE | `/api/bulk/job/:jobId` | İşi sil |
-| DELETE | `/api/bulk/completed` | Tamamlananları temizle |
+| `POST` | `/api/messages/schedule` | Mesaj zamanla |
+| `GET` | `/api/messages/scheduled` | Zamanlanmış mesajları listele |
+| `GET` | `/api/messages/scheduled/:id` | Tekil detay |
+| `PUT` | `/api/messages/scheduled/:id` | Düzenle |
+| `DELETE` | `/api/messages/scheduled/:id` | İptal et |
+| `DELETE` | `/api/messages/scheduled/completed` | Tamamlanmışları temizle |
 
-**Gelişmiş Bulk Mesaj Özellikleri:**
-- 📅 **Zamanlama**: `scheduledAt` ile belirli bir zamanda başlatma
-- ⏰ **Zaman Penceresi**: `timeWindow` ile sadece belirli saatlerde gönderim (örn: 09:00-18:00)
-- 📎 **Medya Desteği**: Resim, video, ses, döküman gönderimi
-- ⌨️ **Typing Göstergesi**: Her mesaj öncesi yazıyor göstergesi
-- ⏱️ **Gecikme Ayarları**: `minDelay`/`maxDelay` ile rastgele gecikme
-- ⏸️ **Duraklat/Devam**: İşleri manuel olarak durdurma ve devam ettirme
-- 📊 **Detaylı İstatistik**: Tahmini bitiş zamanı, ortalama mesaj süresi
-
-### Ayarlar
+### Toplu Mesaj
 
 | Method | Endpoint | Açıklama |
 |--------|----------|----------|
-| GET | `/api/settings` | Tüm ayarları getir |
-| PUT | `/api/settings` | Ayarları güncelle (anında geçerli) |
+| `POST` | `/api/bulk/send` | Toplu gönderim başlat |
+| `GET` | `/api/bulk/jobs` | Tüm işler |
+| `GET` | `/api/bulk/status/:jobId` | İş durumu |
+| `GET` | `/api/bulk/status/:jobId/detailed` | Detaylı durum (alıcı bazlı) |
+| `POST` | `/api/bulk/pause/:jobId` | Duraklat |
+| `POST` | `/api/bulk/resume/:jobId` | Devam ettir |
+| `POST` | `/api/bulk/cancel/:jobId` | İptal et |
+| `DELETE` | `/api/bulk/job/:jobId` | İşi sil |
+| `DELETE` | `/api/bulk/completed` | Tamamlananları temizle |
 
-### Sunucu İstatistikleri
+### SSE Streams (Gerçek Zamanlı)
+
+| Endpoint | Açıklama |
+|----------|----------|
+| `/api/auth/qr/stream` | QR kod durumu (qr, connected, disconnected, timeout) |
+| `/api/messages/stream` | Tüm mesajlar (message, sent, connected, disconnected) |
+| `/api/messages/stream?jid=905xx` | Belirli numaranın mesajları |
+| `/api/terminal/stream` | Terminal logları (real-time) |
+
+### Ayarlar & İstatistikler
 
 | Method | Endpoint | Açıklama |
 |--------|----------|----------|
-| GET | `/api/stats` | Tüm istatistikler |
-| GET | `/api/stats/system` | Sistem istatistikleri |
-| GET | `/api/stats/whatsapp` | WhatsApp bağlantı durumu |
-| GET | `/api/stats/queue` | Kuyruk istatistikleri |
+| `GET` | `/api/settings` | Tüm uygulama ayarlarını getir |
+| `PUT` | `/api/settings` | Ayarları güncelle (anında geçerli) |
+| `GET` | `/api/stats` | Tüm istatistikler (sistem, WhatsApp, kuyruk) |
 
-### Cache Yönetimi
-
-| Method | Endpoint | Açıklama |
-|--------|----------|----------|
-| GET | `/api/cache/stats` | Cache istatistikleri |
-| POST | `/api/cache/clear` | Cache'i temizle ve RAM'i serbest bırak |
+---
 
 ## 📝 Kullanım Örnekleri
 
-### SSE ile Gerçek Zamanlı Mesaj Dinleme
-
-```javascript
-// JavaScript EventSource ile mesaj dinleme
-const eventSource = new EventSource('http://localhost:3000/api/messages/stream', {
-  headers: { 'X-API-Key': 'your_api_key' }
-});
-
-eventSource.onmessage = (event) => {
-  const data = JSON.parse(event.data);
-  
-  switch(data.type) {
-    case 'init':
-      console.log('Bağlantı durumu:', data.isConnected);
-      break;
-    case 'message':
-      console.log('Yeni mesaj:', data.data);
-      break;
-    case 'sent':
-      console.log('Mesaj gönderildi:', data.data);
-      break;
-    case 'connected':
-      console.log('WhatsApp bağlandı');
-      break;
-    case 'disconnected':
-      console.log('WhatsApp bağlantısı kesildi:', data.reason);
-      break;
-    case 'heartbeat':
-      console.log('Bağlantı aktif');
-      break;
-  }
-};
-
-// Belirli bir numaradan gelen mesajları dinle
-const filteredSource = new EventSource(
-  'http://localhost:3000/api/messages/stream?jid=905551234567'
-);
-```
-
-```bash
-# curl ile SSE dinleme
-curl -N http://localhost:3000/api/messages/stream \
-  -H "X-API-Key: your_api_key"
-```
-
-### QR Kod Alma (Base64)
-
-```bash
-curl http://localhost:3000/api/auth/qr
-```
-
-### QR Kod Alma (PNG Görsel)
-
-```bash
-# Tarayıcıda doğrudan aç veya dosyaya kaydet
-curl http://localhost:3000/api/auth/qr/image --output qr.png
-```
-
-### QR Görselini HTML'de Kullanma
-
-```html
-<!-- PNG dosyası olarak -->
-<img src="http://localhost:3000/api/auth/qr/image" alt="QR Code" />
-```
-
 ### Mesaj Gönderme
 
-Tüm mesajlar gönderilmeden önce otomatik olarak "yazıyor..." göstergesi gönderilir (varsayılan 3 saniye).
-
 ```bash
-# Text mesaj (otomatik 3sn typing göstergesi ile)
+# Text mesaj (otomatik typing göstergesi ile)
 curl -X POST http://localhost:3000/api/messages/send \
   -H "Content-Type: application/json" \
+  -H "X-API-Key: YOUR_KEY" \
   -d '{"jid": "905551234567", "message": "Merhaba!"}'
 
-# Text mesaj (özel typing süresi ile - 5 saniye)
+# Özel typing süresi (5 saniye)
 curl -X POST http://localhost:3000/api/messages/send \
   -H "Content-Type: application/json" \
-  -d '{
-    "jid": "905551234567",
-    "message": "Merhaba!",
-    "typingDuration": 5000
-  }'
-
-# Zamanlanmış mesaj (send endpoint'i üzerinden)
-curl -X POST http://localhost:3000/api/messages/send \
-  -H "Content-Type: application/json" \
-  -d '{
-    "jid": "905551234567",
-    "message": "Bu mesaj yarın saat 10'da gönderilecek",
-    "scheduledAt": "2026-02-17T10:00:00.000Z"
-  }'
+  -d '{"jid": "905551234567", "message": "Merhaba!", "typingDuration": 5000}'
 
 # Resim gönder (URL ile)
 curl -X POST http://localhost:3000/api/messages/send \
@@ -313,17 +284,8 @@ curl -X POST http://localhost:3000/api/messages/send \
   -d '{
     "jid": "905551234567",
     "type": "image",
-    "mediaUrl": "https://example.com/image.jpg",
-    "caption": "Bu bir resim"
-  }'
-
-# Ses gönder (base64 ile)
-curl -X POST http://localhost:3000/api/messages/send \
-  -H "Content-Type: application/json" \
-  -d '{
-    "jid": "905551234567",
-    "type": "audio",
-    "mediaBase64": "BASE64_ENCODED_AUDIO_DATA"
+    "mediaUrl": "https://example.com/photo.jpg",
+    "caption": "Fotoğraf açıklaması"
   }'
 
 # Doküman gönder
@@ -332,32 +294,9 @@ curl -X POST http://localhost:3000/api/messages/send \
   -d '{
     "jid": "905551234567",
     "type": "document",
-    "mediaUrl": "https://example.com/file.pdf",
-    "fileName": "rapor.pdf",
-    "caption": "Rapor dosyası"
+    "mediaUrl": "https://example.com/rapor.pdf",
+    "fileName": "rapor.pdf"
   }'
-```
-
-### Sohbetleri Filtreleme
-
-```bash
-# Tüm sohbetler
-curl http://localhost:3000/api/messages/chats
-
-# Okunmamış sohbetler
-curl "http://localhost:3000/api/messages/chats?unread=true"
-
-# Arşivlenmiş sohbetler
-curl "http://localhost:3000/api/messages/chats?archived=true"
-
-# Türkiye numaraları (+90)
-curl "http://localhost:3000/api/messages/chats?countryCode=90"
-
-# Arama ve sayfalama
-curl "http://localhost:3000/api/messages/chats?search=Ahmet&page=1&limit=10"
-
-# Sıralama (son mesaja göre)
-curl "http://localhost:3000/api/messages/chats?sortBy=lastMessage&sortOrder=desc"
 ```
 
 ### Zamanlanmış Mesaj
@@ -369,185 +308,186 @@ curl -X POST http://localhost:3000/api/messages/schedule \
   -d '{
     "jid": "905551234567",
     "message": "Bu mesaj 2 saat sonra gönderilecek",
-    "scheduledAt": "2026-02-16T14:00:00.000Z"
+    "scheduledAt": "2026-02-25T14:00:00.000Z"
   }'
 
-# Zamanlanmış mesajları listele
+# Listele
 curl http://localhost:3000/api/messages/scheduled
 
-# Zamanlanmış mesajı güncelle
-curl -X PUT http://localhost:3000/api/messages/scheduled/MESSAGE_ID \
-  -H "Content-Type: application/json" \
-  -d '{
-    "message": "Güncellenmiş mesaj",
-    "scheduledAt": "2026-02-16T16:00:00.000Z"
-  }'
-
-# Zamanlanmış mesajı iptal et
+# İptal et
 curl -X DELETE http://localhost:3000/api/messages/scheduled/MESSAGE_ID
-```
-
-### Kişi & Profil
-
-```bash
-# Numara WhatsApp'ta kayıtlı mı?
-curl http://localhost:3000/api/messages/check/905551234567
-
-# Profil bilgisi al
-curl http://localhost:3000/api/messages/profile/905551234567
-```
-
-### Sohbet İşlemleri
-
-```bash
-# Yazıyor göstergesi gönder (3 saniye)
-curl -X POST http://localhost:3000/api/messages/typing/905551234567 \
-  -H "Content-Type: application/json" \
-  -d '{"duration": 3000}'
-
-# Sohbeti okundu olarak işaretle
-curl -X POST http://localhost:3000/api/messages/read/905551234567
-
-# Sohbeti arşivle
-curl -X POST http://localhost:3000/api/messages/archive/905551234567 \
-  -H "Content-Type: application/json" \
-  -d '{"archive": true}'
-
-# Sohbeti sabitle
-curl -X POST http://localhost:3000/api/messages/pin/905551234567 \
-  -H "Content-Type: application/json" \
-  -d '{"pin": true}'
-
-# Mesaj sil
-curl -X DELETE http://localhost:3000/api/messages/905551234567/MESSAGE_ID
 ```
 
 ### Toplu Mesaj
 
 ```bash
+# Basit toplu gönderim
 curl -X POST http://localhost:3000/api/bulk/send \
   -H "Content-Type: application/json" \
   -d '{
     "recipients": ["905551111111", "905552222222", "905553333333"],
-    "message": "Toplu mesaj!"
+    "message": "Toplu mesaj!",
+    "minDelay": 3000,
+    "maxDelay": 10000
+  }'
+
+# Zaman pencereli + ileri tarihli toplu gönderim
+curl -X POST http://localhost:3000/api/bulk/send \
+  -H "Content-Type: application/json" \
+  -d '{
+    "recipients": ["905551111111", "905552222222"],
+    "message": "Sadece mesai saatlerinde gönderilecek",
+    "minDelay": 5000,
+    "maxDelay": 15000,
+    "timeWindow": { "startTime": "09:00", "endTime": "18:00" },
+    "scheduledAt": "2026-02-26T09:00:00.000Z"
   }'
 ```
 
-### SSE ile QR Dinleme (JavaScript)
+### Sohbet Filtreleme
+
+```bash
+# Tüm sohbetler
+curl http://localhost:3000/api/messages/chats
+
+# Okunmamış sohbetler
+curl "http://localhost:3000/api/messages/chats?unread=true"
+
+# Arama + sayfalama
+curl "http://localhost:3000/api/messages/chats?search=Ahmet&page=1&limit=10"
+```
+
+### SSE ile Gerçek Zamanlı Dinleme
 
 ```javascript
-const eventSource = new EventSource('http://localhost:3000/api/auth/qr/stream');
+const es = new EventSource('http://localhost:3000/api/messages/stream');
 
-eventSource.onmessage = (event) => {
+es.onmessage = (event) => {
   const data = JSON.parse(event.data);
   
-  if (data.type === 'qr') {
-    // QR kodunu göster (base64 image)
-    document.getElementById('qr').src = data.qrCode;
-  } else if (data.type === 'connected') {
-    // Bağlandı
-    console.log('Connected:', data.session);
-    eventSource.close();
+  switch (data.type) {
+    case 'init':       console.log('Durum:', data.isConnected); break;
+    case 'message':    console.log('Gelen:', data.data);        break;
+    case 'sent':       console.log('Gönderilen:', data.data);   break;
+    case 'connected':  console.log('WhatsApp bağlandı');        break;
+    case 'disconnected': console.log('Bağlantı kesildi');       break;
   }
 };
 ```
 
-### Sunucu İstatistikleri
+---
+
+## 🧩 Chrome Addon — WhatsApp BOT Manager
+
+Proje, tüm API özelliklerini görsel arayüzle kullanmanızı sağlayan bir **Chrome Extension** içerir.
+
+### Addon Özellikleri
+
+| Bölüm | Özellikler |
+|-------|-----------|
+| **Panel** | QR kod ile bağlanma · API ayarları · Sunucu ayarları (timezone, bildirim, otomatik okundu, arama reddi) · Sistem durumu · İstatistikler · Hızlı işlemler |
+| **Sohbetler** | WhatsApp tarzı sohbet listesi · Arama ve filtreleme (tümü, okunmamış, arşiv) · Gerçek zamanlı mesajlaşma (SSE) · Yeni sohbet başlatma · Numara kontrolü |
+| **Gönderim** | Tekli mesaj (hemen veya zamanlı) · Toplu mesaj (gecikme, zaman penceresi, ileri tarih) · Text / Resim / Video / Doküman desteği · Aktif iş ve zamanlı mesaj takibi |
+
+### Akıllı Navigasyon
+
+- **API bağlantısı yoksa** → Sadece Panel sekmesi erişilebilir, diğerleri kilitli
+- **WhatsApp bağlı değilse** → Sohbetler ve Gönderim kilitli, Panel'de QR ekranı görünür
+- **Bağlı olduğunda** → Tüm sekmeler açılır, Panel'de dashboard görünür
+
+### Addon Kurulumu
+
+#### 1. Chrome'a Yükleme
+
+1. Chrome'da `chrome://extensions` adresine gidin
+2. **Geliştirici modu**nu açın (sağ üst)
+3. **Paketlenmemiş öğe yükle** → `chrome-extension` klasörünü seçin
+4. Yüklenen Extension'ın **ID**'sini kopyalayın
+
+#### 2. CORS Ayarı
+
+Extension'ın API'ye erişebilmesi için CORS whitelist'ine eklenmesi gerekir:
 
 ```bash
-# Tüm istatistikleri al
-curl http://localhost:3000/api/stats
-
-# Sadece kuyruk durumunu al
-curl http://localhost:3000/api/stats/queue
+# Yöntem 1: API üzerinden
+curl -X PUT http://localhost:3000/api/settings \
+  -H "Content-Type: application/json" \
+  -d '{"corsWhiteList": ["chrome-extension://YOUR_EXTENSION_ID"]}'
 ```
 
-## ⏱️ QR Kod Timeout Mekanizması
+```env
+# Yöntem 2: .env dosyasına ekle
+CORS_WHITELIST=chrome-extension://YOUR_EXTENSION_ID,http://localhost:3000
+```
 
-QR kod oluşturma işlemi sunucu yükünü önlemek için otomatik timeout mekanizmasına sahiptir:
+#### 3. Addon'da API Bağlantısı
 
-- **Maksimum QR Denemesi**: 5 kez QR yenilemesi
-- **Bağlantı Timeout**: 2 dakika
-- **QR Süresi**: Her QR 60 saniye geçerli
+1. Extension ikonuna tıklayın → **Panel** sekmesi açılır
+2. QR alanının altındaki **API Ayarları**'nı açın
+3. API URL girin (varsayılan: `http://localhost:3000/api`)
+4. Varsa API Key girin
+5. **Test** → **Kaydet**
 
-QR taranmazsa bağlantı otomatik olarak durdurulur ve sunucu kaynakları serbest bırakılır.
+### Addon Kullanım Akışı
+
+```
+1. Addon'u aç → Panel sekmesi
+2. API Ayarları → URL ve Key gir → Kaydet
+3. "Bağlantıyı Başlat" → QR kodu tara
+4. Bağlantı kuruldu → Sohbetler ve Gönderim aktif
+5. Panel'den: Sunucu ayarları, istatistikler, hızlı işlemler
+6. Sohbetler'den: Mesaj geçmişi, gerçek zamanlı mesajlaşma
+7. Gönderim'den: Tekli/toplu mesaj, zamanlı gönderim
+```
+
+### Addon Sorun Giderme
+
+| Sorun | Çözüm |
+|-------|-------|
+| API bağlantısı kurulamadı | API sunucusunun çalıştığını ve URL'nin doğru olduğunu kontrol edin |
+| CORS hatası | Extension ID'nin CORS whitelist'ine eklendiğinden emin olun |
+| QR kod görünmüyor | "Bağlantıyı Başlat" butonuna tıklayın |
+| Sekmeler kilitli | WhatsApp bağlantısının aktif olduğunu kontrol edin |
+| Mesaj gönderilemiyor | Numara formatını kontrol edin (ör: `905551234567`) |
+
+---
+
+## ⏱ QR Kod Timeout
+
+- **Maks QR denemesi**: 5 kez
+- **Bağlantı timeout**: 2 dakika
+- **QR süresi**: Her QR 60 saniye geçerli
+
+QR taranmazsa bağlantı otomatik olarak durdurulur.
+
+---
 
 ## 🔧 Teknolojiler
 
-- **Runtime**: Node.js
-- **Language**: TypeScript
-- **Framework**: Express.js
-- **WhatsApp**: Baileys (@whiskeysockets/baileys)
-- **Logging**: Pino
+| Katman | Teknoloji |
+|--------|-----------|
+| Runtime | Node.js 18+ |
+| Dil | TypeScript |
+| Framework | Express.js |
+| WhatsApp | Baileys (@whiskeysockets/baileys) |
+| Logging | Pino |
+| Güvenlik | Helmet · CORS · Rate Limiter |
+| Addon | Chrome Extension (Manifest V3) |
 
-## 📋 API Response Formatı
-
-Tüm API yanıtları aşağıdaki formatta döner:
-
-```json
-{
-  "success": true,
-  "data": { ... },
-  "message": "İşlem başarılı",
-  "timestamp": "2026-02-15T12:00:00.000Z"
-}
-```
-
-Hata durumunda:
-
-```json
-{
-  "success": false,
-  "error": "Hata detayı",
-  "message": "Hata mesajı",
-  "timestamp": "2026-02-15T12:00:00.000Z"
-}
-```
+---
 
 ## 📮 Postman Collection
 
-Proje içinde hazır Postman collection dosyaları bulunmaktadır:
-
 ```
 postman/
-├── WhatsApp-BOT-API.postman_collection.json     # API Collection
-├── WhatsApp-BOT-Local.postman_environment.json  # Local Environment
-└── WhatsApp-BOT-Production.postman_environment.json  # Production Environment
+├── WhatsApp-BOT-API.postman_collection.json          # Tüm API endpoint'leri
+├── WhatsApp-BOT-Local.postman_environment.json       # Local ortam
+└── WhatsApp-BOT-Production.postman_environment.json  # Production ortam
 ```
 
-### Postman'a Aktarma:
+**İçe aktarma:** Postman → Import → `postman/` klasöründeki dosyaları sürükleyin → Environment seçin.
 
-1. Postman'ı açın
-2. **Import** butonuna tıklayın
-3. `postman/` klasöründeki dosyaları sürükleyip bırakın
-4. Environment olarak "WhatsApp BOT - Local" seçin
-5. API'yi test etmeye başlayın!
-
-### Collection İçeriği:
-
-| Klasör | Endpoint Sayısı | Açıklama |
-|--------|-----------------|----------|
-| Health Check | 1 | Sunucu sağlık kontrolü (Auth gerektirmez) |
-| SSE Streams | 3 | QR ve mesaj real-time dinleme |
-| Authentication | 5 | QR, QR Image, Status, Logout, Cancel |
-| Messages | 15 | Mesaj gönderme, sohbet işlemleri |
-| Scheduled Messages | 6 | Zamanlanmış mesaj yönetimi |
-| Bulk Messages | 11 | Gelişmiş toplu mesaj yönetimi |
-| Settings | 2 | Tüm ayarları görüntüle ve güncelle |
-| Server Stats | 4 | Sistem ve kuyruk istatistikleri |
-| Cache Management | 2 | Bellek yönetimi ve temizleme |
-
-## 🔧 Chrome Extension
-
-Proje içinde Chrome uzantısı bulunmaktadır. Detaylı kurulum ve kullanım için `chrome-extension/README.md` dosyasına bakın.
-
-### Özellikler:
-- 🔗 QR kod ile bağlantı yönetimi
-- 💬 Mesaj gönderimi (text, image, video, audio, document)
-- 📋 Sohbet listesi ve filtreleme
-- 📨 Toplu mesaj gönderimi
-- ⏰ Zamanlanmış mesajlar
-- 📊 İstatistik görüntüleme
+---
 
 ## 📜 Lisans
 

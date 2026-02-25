@@ -1,143 +1,141 @@
-# WhatsApp BOT Manager - Chrome Extension
+# WhatsApp BOT Manager — Chrome Addon
 
-> **v2.0.0** - WhatsApp BOT API için optimize edilmiş Chrome uzantısı.
-
-Tüm API özelliklerini kullanıcı dostu bir arayüzle yönetmenizi sağlar.
+> **v2.0.0** — WhatsApp BOT API için geliştirilmiş Chrome Extension. Tüm API özelliklerini görsel arayüzle yönetin.
 
 ## ✨ Özellikler
 
-### Bağlantı Yönetimi
-- 🔗 QR kod ile WhatsApp bağlantısı (real-time SSE)
-- 🔄 Otomatik yeniden bağlanma
-- 📊 Bağlantı durumu izleme
+### Panel (Dashboard)
+- 🔗 QR kod ile WhatsApp bağlantısı (SSE real-time)
+- ⚙️ Inline API bağlantı ayarları (URL, Key, Test)
+- 🛠 Sunucu ayarları (saat dilimi, otomatik okundu, bildirimler, arama reddi)
+- 📊 Sistem durumu (uptime, bellek, sağlık)
+- 📈 WhatsApp istatistikleri (bağlantı süresi, gönderilen, kuyruk)
+- ⚡ Hızlı işlem butonları
 
-### Mesajlaşma
-- 💬 Metin, resim, video, ses ve belge gönderimi
-- ⌨️ Otomatik yazıyor göstergesi
-- 📋 Sohbet listesi ve filtreleme
-- 🔍 Numara kontrolü (WhatsApp kayıt durumu)
+### Sohbetler
+- 💬 WhatsApp tarzı sohbet listesi
+- 🔍 Arama ve filtreleme (tümü, okunmamış, arşiv)
+- 📨 Gerçek zamanlı mesajlaşma (SSE)
+- 👤 Yeni sohbet başlatma ve numara kontrolü
+- 📜 Mesaj geçmişi görüntüleme
 
-### Toplu İşlemler
-- 📨 Çoklu alıcılara gecikme ayarlı mesaj gönderimi
-- ⏰ İleri tarihe mesaj planlama
-- ⏸️ İş duraklatma/devam ettirme
-- 📈 Detaylı ilerleme takibi
+### Gönderim
+- 📤 Tekli mesaj (hemen veya zamanlı)
+- 📦 Toplu mesaj (gecikme, zaman penceresi, ileri tarih zamanlaması)
+- 📎 Medya desteği (text, resim, video, doküman)
+- ⏰ Zamanlı mesaj listesi ve takibi
+- 📋 Aktif toplu iş takibi (duraklat, devam, iptal)
 
-### Performans
-- ⚡ Optimize edilmiş API istekleri
-- 🗃️ İstek önbellekleme
-- 📊 Sistem ve mesaj istatistikleri
+### Akıllı Navigasyon
+- 🔒 API bağlantısı yoksa → Sadece Panel erişilebilir
+- 🔒 WhatsApp bağlı değilse → Sohbetler ve Gönderim kilitli
+- ✅ Bağlı olduğunda → Tüm sekmeler aktif
 
-## Kurulum
+---
 
-### 1. Extension'ı Chrome'a Yükleme
+## 🛠 Kurulum
 
-1. Chrome tarayıcısını açın
-2. `chrome://extensions` adresine gidin
-3. Sağ üstteki "Geliştirici modu"nu açın
-4. "Paketlenmemiş öğe yükle" butonuna tıklayın
-5. `chrome-extension` klasörünü seçin
-6. Extension yüklendikten sonra **Extension ID**'yi not edin (örn: `abcdefghijklmnopqrstuvwxyz123456`)
+### 1. Chrome'a Yükleme
 
-### 2. API CORS Ayarları
+1. Chrome'da `chrome://extensions` adresine gidin
+2. Sağ üstten **Geliştirici modu**'nu açın
+3. **Paketlenmemiş öğe yükle** butonuna tıklayın
+4. `chrome-extension` klasörünü seçin
+5. Yüklenen Extension'ın **ID**'sini not edin
+
+### 2. API CORS Ayarı
 
 Extension'ın API'ye erişebilmesi için CORS whitelist'ine eklenmesi gerekir:
 
-**Yöntem 1: API Settings Endpoint ile**
+**API üzerinden:**
 ```bash
 curl -X PUT http://localhost:3000/api/settings \
   -H "Content-Type: application/json" \
-  -H "X-API-Key: YOUR_API_KEY" \
   -d '{"corsWhiteList": ["chrome-extension://YOUR_EXTENSION_ID"]}'
 ```
 
-**Yöntem 2: .env dosyasına ekleyerek**
-```
+**.env dosyasına ekleyerek:**
+```env
 CORS_WHITELIST=chrome-extension://YOUR_EXTENSION_ID,http://localhost:3000
 ```
 
-### 3. Extension Ayarları
+### 3. Addon'da API Bağlantısı
 
-1. Extension ikonuna tıklayın
-2. Sağ üstteki ⚙️ ayarlar ikonuna tıklayın
-3. API URL'nizi girin (varsayılan: `http://localhost:3000/api`)
-4. Eğer varsa API Key'inizi girin
-5. "Kaydet" butonuna tıklayın
+1. Extension ikonuna tıklayın → **Panel** sekmesi açılır
+2. QR alanının altındaki **API Ayarları** bölümünü açın
+3. API URL girin (varsayılan: `http://localhost:3000/api`)
+4. Varsa API Key girin
+5. **Test** ile bağlantıyı doğrulayın → **Kaydet**
 
-## Kullanım
+---
 
-### Panel (Dashboard)
-- Bağlantı durumunu görün
-- QR kod ile bağlanın
-- Hızlı istatistikleri takip edin
-- Hızlı işlem butonlarını kullanın
+## 📖 Kullanım
 
-### Mesaj
-- Telefon numarası girin
-- "Kontrol" butonuyla WhatsApp kaydını sorgulayın
-- Mesaj tipini seçin (metin/resim/video/ses/belge)
-- Mesajınızı yazın ve gönderin
+### Panel
+- QR kodu tarayarak WhatsApp'a bağlanın
+- Bağlandıktan sonra oturum bilgileri, istatistikler ve sunucu ayarları görünür
+- Sunucu ayarlarını (timezone, bildirim, otomatik okundu, arama reddi) buradan düzenleyin
+- Hızlı işlem butonları ile diğer sekmelere geçiş yapın
 
 ### Sohbetler
-- Tüm sohbetleri listeleyin
-- Arama yapın
-- Okunmamış/arşivli filtreleri kullanın
+- Sol panelden sohbet seçin veya arama yapın
+- Okunmamış / Arşiv filtreleri ile listeleyin
 - Sohbete tıklayarak mesaj geçmişini görün ve yanıt verin
+- "+" butonu ile yeni sohbet başlatın
 
-### Toplu Gönderim
-- Alıcı numaralarını her satıra bir tane olacak şekilde girin
-- Mesaj tipini ve içeriğini belirleyin
-- Min/Max gecikme sürelerini ayarlayın
-- İsteğe bağlı zaman penceresi tanımlayın
-- "Gönderimi Başlat" butonuyla başlatın
-- Aktif işleri takip edin, duraklatın veya iptal edin
+### Gönderim — Tekli Mesaj
+1. Alıcı numarasını girin (ör: `905551234567`)
+2. "Hemen Gönder" veya "Zamanla" seçin
+3. Mesaj tipini belirleyin (text / resim / video / doküman)
+4. Mesajı yazın ve gönderin
 
-### Zamanlı Mesajlar
-- Alıcı ve mesaj bilgilerini girin
-- Gönderim tarih/saatini seçin
-- "Zamanla" butonuyla planlayın
-- Zamanlı mesajları listeden takip edin
+### Gönderim — Toplu Mesaj
+1. Her satıra bir numara olacak şekilde alıcıları girin
+2. Min/Max gecikme sürelerini ayarlayın
+3. İsteğe bağlı: Zaman penceresi veya ileri tarih zamanlaması ekleyin
+4. "Toplu Gönderimi Başlat" ile başlatın
+5. Sağ panelden aktif işleri takip edin
 
-## Tasarım
+---
 
-Extension, WhatsApp BOT markasına uygun dark tema kullanır:
-- Ana arka plan: `#1A1E23`
-- Vurgu rengi: `#00983A` (WhatsApp yeşili)
-- Metin: `#FFFFFF`
+## 🎨 Tasarım
 
-## Güvenlik
+- **Dark tema** — WhatsApp markasına uygun
+- **Pencere boyutu**: 720×580 px
+- **Ana renk**: `#00A884` (WhatsApp yeşili)
+- **Arka plan**: `#1A1E23`
+- **Manifest V3** — Modern Chrome Extension API
 
-- API Key'ler Chrome'un güvenli storage'ında saklanır
-- Tüm API istekleri CORS ayarlarına uygun şekilde yapılır
-- Hassas bilgiler asla loglanmaz
+---
 
-## Gereksinimler
+## 🔒 Güvenlik
+
+- API Key'ler Chrome'un güvenli `chrome.storage` API'sinde saklanır
+- Tüm istekler CORS ayarlarına uygun şekilde yapılır
+- Hassas bilgiler loglanmaz
+
+---
+
+## 📋 Gereksinimler
 
 - Chrome 88+ veya uyumlu Chromium tabanlı tarayıcı
 - WhatsApp BOT API'nin çalışır durumda olması
 - API'ye erişim izni (localhost veya CORS whitelist)
 
-## Sorun Giderme
+---
 
-### "API bağlantısı kurulamadı" hatası
-1. API sunucusunun çalıştığından emin olun
-2. API URL'nin doğru olduğunu kontrol edin
-3. CORS ayarlarında extension origin'inin ekli olduğunu kontrol edin
+## 🔧 Sorun Giderme
 
-### QR kod görünmüyor
-1. API'nin bağlı olmadığından emin olun
-2. "Bağlan" butonuna tekrar tıklayın
-3. Sayfayı yenileyin
+| Sorun | Çözüm |
+|-------|-------|
+| API bağlantısı kurulamadı | API sunucusunun çalıştığını ve URL'nin doğru olduğunu kontrol edin |
+| CORS hatası | Extension ID'nin CORS whitelist'ine eklendiğinden emin olun |
+| QR kod görünmüyor | "Bağlantıyı Başlat" butonuna tıklayın, API'nin logout durumunda olduğunu doğrulayın |
+| Sekmeler kilitli | WhatsApp bağlantısının aktif olduğunu kontrol edin (Panel → QR tara) |
+| Mesaj gönderilemiyor | Numara formatını kontrol edin (ülke kodu ile, ör: `905551234567`) |
 
-### Mesaj gönderilemiyor
-1. WhatsApp bağlantısının aktif olduğunu kontrol edin
-2. Telefon numarasının doğru formatta olduğunu kontrol edin
-3. API loglarını inceleyin
+---
 
-## Lisans
+## 📜 Lisans
 
-MIT License
-
-## Destek
-
-Sorularınız için GitHub Issues kullanabilirsiniz.
+MIT
