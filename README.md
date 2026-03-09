@@ -136,7 +136,7 @@ Proje kök dizininde `.env` dosyası oluşturun:
 # Sunucu
 PORT=3000
 NODE_ENV=development
-SESSION_PATH=./auth_info
+SESSION_PATH=./public/auth_info
 
 # Saat dilimi (tüm zamanlamalar ve loglar bu dilimi kullanır)
 TZ=Europe/Istanbul
@@ -154,11 +154,14 @@ QUEUE_MAX_RETRY=3
 RATE_LIMIT_WINDOW_MS=60000
 RATE_LIMIT_MAX_REQUESTS=100
 
-# CORS (Chrome Extension ID'nizi ekleyin)
-CORS_WHITELIST=chrome-extension://YOUR_EXTENSION_ID,http://localhost:3000
+# CORS Whitelist
+CORS_WHITE_LIST="::1, ::ffff:127.0.0.1"
 
-# API Key (boş bırakılırsa auth devre dışı)
+# API Key (boş bırakılırsa otomatik oluşturulur)
 API_KEY=
+
+# Otomatik Önbellek Temizleme (dakika, 0 = kapalı)
+CACHE_CLEAR_INTERVAL=0
 ```
 
 ---
@@ -217,6 +220,13 @@ Tüm yanıtlar standart formatta döner:
 |--------|----------|----------|
 | `POST` | `/api/messages/typing/:jid` | Yazıyor göstergesi gönder |
 | `POST` | `/api/messages/read/:jid` | Okundu olarak işaretle |
+
+### Önbellek Yönetimi
+
+| Method | Endpoint | Açıklama |
+|--------|----------|----------|
+| `DELETE` | `/api/messages/cache` | Tüm sohbet önbelleğini temizle |
+| `DELETE` | `/api/messages/cache/:jid` | Belirli sohbet önbelleğini temizle |
 
 ### Zamanlanmış Mesajlar
 
@@ -417,7 +427,7 @@ curl -X PUT http://localhost:3000/api/settings \
 
 ```env
 # Yöntem 2: .env dosyasına ekle
-CORS_WHITELIST=chrome-extension://YOUR_EXTENSION_ID,http://localhost:3000
+CORS_WHITE_LIST="chrome-extension://YOUR_EXTENSION_ID, ::1, ::ffff:127.0.0.1"
 ```
 
 #### 3. Addon'da API Bağlantısı

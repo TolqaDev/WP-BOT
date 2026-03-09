@@ -9,7 +9,6 @@ interface RateLimitEntry {
 
 const requestCounts = new Map<string, RateLimitEntry>();
 
-// Cleanup old entries periodically
 setInterval(() => {
   const now = Date.now();
   for (const [key, entry] of requestCounts.entries()) {
@@ -52,7 +51,7 @@ export const rateLimiter = (
   if (entry.count > config.rateLimit.maxRequests) {
     res.status(429).json(
       ResponseFormatter.error(
-        `Çok fazla istek. ${resetIn} saniye sonra tekrar deneyin.`,
+        `Too many requests. Try again in ${resetIn} seconds.`,
         'Rate limit exceeded'
       )
     );

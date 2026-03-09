@@ -34,9 +34,8 @@ const gracefulShutdown = async (signal: string): Promise<void> => {
   logger.info({ signal }, 'Received shutdown signal');
 
   try {
-    // Graceful close - oturumu koruyarak sadece bağlantıyı kapat
     await whatsAppService.gracefulClose();
-    logger.info('WhatsApp connection closed gracefully (session preserved)');
+    logger.info('WhatsApp connection closed gracefully');
   } catch (error) {
     logger.error({ error }, 'Error during shutdown');
   }
@@ -50,16 +49,14 @@ process.on('uncaughtException', (error) => {
 });
 
 process.on('unhandledRejection', (reason: any, promise) => {
-  // Daha ayrıntılı hata bilgisi
   const errorInfo = {
     reason: reason,
     message: reason?.message || 'Unknown',
     stack: reason?.stack || 'No stack trace',
     promise: promise
   };
-  logger.error(errorInfo, 'Unhandled rejection - attempting to continue');
+  logger.error(errorInfo, 'Unhandled rejection');
 
-  // Development modunda process'i kapatma, sadece logla
   if (process.env.NODE_ENV === 'production') {
     logger.fatal(errorInfo, 'Unhandled rejection in production - shutting down');
     process.exit(1);
@@ -78,7 +75,6 @@ const main = async (): Promise<void> => {
     const app = createServer();
     startServer(app);
 
-    // Try auto-connect if session exists
     const autoConnected = await whatsAppService.autoConnect();
     if (autoConnected) {
       logger.info('Auto-connect initiated with existing session');

@@ -15,7 +15,7 @@ class SchedulerService extends EventEmitter {
   private scheduledMessages: Map<string, ScheduledMessage> = new Map();
   private timers: Map<string, NodeJS.Timeout> = new Map();
   private checkInterval: NodeJS.Timeout | null = null;
-  private readonly checkIntervalMs = 10000; // Check every 10 seconds
+  private readonly checkIntervalMs = 10000;
 
   private constructor() {
     super();
@@ -30,16 +30,12 @@ class SchedulerService extends EventEmitter {
     return SchedulerService.instance;
   }
 
-  /**
-   * Schedule a new message
-   */
   public scheduleMessage(payload: ScheduleMessagePayload): ScheduledMessage {
     const id = randomUUID();
     const now = new Date();
     const scheduledAt = new Date(payload.scheduledAt);
     const timezone = settingsService.timezone;
 
-    // Helper function to format date in local timezone
     const formatLocalTime = (date: Date): string => {
       try {
         return date.toLocaleString('tr-TR', { timeZone: timezone });
@@ -48,24 +44,20 @@ class SchedulerService extends EventEmitter {
       }
     };
 
-    // Validate scheduled time - must be in the future
-    // Check if the date is valid
     if (isNaN(scheduledAt.getTime())) {
-      throw new Error('Geçersiz tarih formatı. ISO 8601 formatı kullanın (örn: 2026-02-17T10:00:00.000Z)');
+      throw new Error('Invalid date format. Use ISO 8601 format (e.g., 2026-02-17T10:00:00.000Z)');
     }
 
-    // Must be at least 30 seconds in the future (reduced from 1 minute to avoid edge cases)
-    const minFutureTime = new Date(now.getTime() + 30000); // 30 seconds from now
+    const minFutureTime = new Date(now.getTime() + 30000);
     if (scheduledAt < minFutureTime) {
       throw new Error(
-        `Zamanlanmış tarih en az 30 saniye sonrası olmalıdır. ` +
-        `Şu an: ${formatLocalTime(now)}, Seçilen: ${formatLocalTime(scheduledAt)}`
+        `Scheduled date must be at least 30 seconds in the future. ` +
+        `Now: ${formatLocalTime(now)}, Selected: ${formatLocalTime(scheduledAt)}`
       );
     }
 
-    // Validate JID - reject group chats
     if (this.isGroupJid(payload.jid)) {
-      throw new Error('Grup sohbetlerine mesaj zamanlanamaz');
+      throw new Error('Cannot schedule messages to group chats');
     }
 
     const scheduledMessage: ScheduledMessage = {
@@ -78,7 +70,7 @@ class SchedulerService extends EventEmitter {
       caption: payload.caption,
       fileName: payload.fileName,
       mimetype: payload.mimetype,
-      typingDuration: payload.typingDuration ?? 3000, // Default 3 seconds
+      typingDuration: payload.typingDuration ?? 3000,
       scheduledAt,
       createdAt: now,
       status: 'pending',
@@ -87,14 +79,11 @@ class SchedulerService extends EventEmitter {
     this.scheduledMessages.set(id, scheduledMessage);
     this.scheduleTimer(scheduledMessage);
 
-    logger.info({ id, jid: payload.jid, scheduledAt }, 'Mesaj zamanlandı');
+    logger.info({ id, jid: payload.jid, scheduledAt }, 'Message scheduled');
 
     return scheduledMessage;
   }
 
-  /**
-   * Get all scheduled messages with optional filters
-   */
   public getScheduledMessages(filters?: {
     status?: ScheduledMessageStatus;
     jid?: string;
@@ -109,32 +98,24 @@ class SchedulerService extends EventEmitter {
       messages = messages.filter(m => m.jid.includes(filters.jid!));
     }
 
-    // Sort by scheduled time
     return messages.sort((a, b) => a.scheduledAt.getTime() - b.scheduledAt.getTime());
   }
 
-  /**
-   * Get a single scheduled message by ID
-   */
   public getScheduledMessage(id: string): ScheduledMessage | undefined {
     return this.scheduledMessages.get(id);
   }
 
-  /**
-   * Update a scheduled message
-   */
   public updateScheduledMessage(id: string, payload: UpdateScheduledMessagePayload): ScheduledMessage {
     const message = this.scheduledMessages.get(id);
 
     if (!message) {
-      throw new Error('Zamanlanmış mesaj bulunamadı');
+      throw new Error('Scheduled message not found');
     }
 
     if (message.status !== 'pending') {
-      throw new Error('Sadece bekleyen mesajlar düzenlenebilir');
+      throw new Error('Only pending messages can be edited');
     }
 
-    // Update fields
     if (payload.message !== undefined) message.message = payload.message;
     if (payload.type !== undefined) message.type = payload.type;
     if (payload.mediaUrl !== undefined) message.mediaUrl = payload.mediaUrl;
@@ -147,41 +128,35 @@ class SchedulerService extends EventEmitter {
     if (payload.scheduledAt) {
       const newScheduledAt = new Date(payload.scheduledAt);
 
-      // Validate date format
       if (isNaN(newScheduledAt.getTime())) {
-        throw new Error('Geçersiz tarih formatı. ISO 8601 formatı kullanın (örn: 2026-02-17T10:00:00.000Z)');
+        throw new Error('Invalid date format. Use ISO 8601 format (e.g., 2026-02-17T10:00:00.000Z)');
       }
 
-      // Must be at least 1 minute in the future
       const minFutureTime = new Date(Date.now() + 60000);
       if (newScheduledAt < minFutureTime) {
-        throw new Error(`Zamanlanmış tarih en az 1 dakika sonrası olmalıdır. Şu anki zaman: ${new Date().toISOString()}, Gönderilen: ${newScheduledAt.toISOString()}`);
+        throw new Error(`Scheduled date must be at least 1 minute in the future. Current: ${new Date().toISOString()}, Provided: ${newScheduledAt.toISOString()}`);
       }
       message.scheduledAt = newScheduledAt;
 
-      // Reschedule timer
       this.clearTimer(id);
       this.scheduleTimer(message);
     }
 
     this.scheduledMessages.set(id, message);
-    logger.info({ id }, 'Zamanlanmış mesaj güncellendi');
+    logger.info({ id }, 'Scheduled message updated');
 
     return message;
   }
 
-  /**
-   * Cancel a scheduled message
-   */
   public cancelScheduledMessage(id: string): ScheduledMessage {
     const message = this.scheduledMessages.get(id);
 
     if (!message) {
-      throw new Error('Zamanlanmış mesaj bulunamadı');
+      throw new Error('Scheduled message not found');
     }
 
     if (message.status !== 'pending') {
-      throw new Error('Sadece bekleyen mesajlar iptal edilebilir');
+      throw new Error('Only pending messages can be cancelled');
     }
 
     message.status = 'cancelled';
@@ -189,14 +164,11 @@ class SchedulerService extends EventEmitter {
     this.scheduledMessages.set(id, message);
 
     this.emit('messageCancelled', message);
-    logger.info({ id }, 'Zamanlanmış mesaj iptal edildi');
+    logger.info({ id }, 'Scheduled message cancelled');
 
     return message;
   }
 
-  /**
-   * Delete a scheduled message (removes from storage)
-   */
   public deleteScheduledMessage(id: string): boolean {
     const message = this.scheduledMessages.get(id);
 
@@ -204,21 +176,17 @@ class SchedulerService extends EventEmitter {
       return false;
     }
 
-    // Can only delete cancelled, sent, or failed messages
     if (message.status === 'pending') {
-      throw new Error('Önce mesajı iptal edin, sonra silebilirsiniz');
+      throw new Error('Cancel the message first before deleting');
     }
 
     this.clearTimer(id);
     this.scheduledMessages.delete(id);
-    logger.info({ id }, 'Zamanlanmış mesaj silindi');
+    logger.info({ id }, 'Scheduled message deleted');
 
     return true;
   }
 
-  /**
-   * Get statistics about scheduled messages
-   */
   public getStats(): {
     total: number;
     pending: number;
@@ -236,9 +204,6 @@ class SchedulerService extends EventEmitter {
     };
   }
 
-  /**
-   * Clear all completed/failed/cancelled messages
-   */
   public clearCompleted(): number {
     let count = 0;
     for (const [id, message] of this.scheduledMessages.entries()) {
@@ -248,7 +213,7 @@ class SchedulerService extends EventEmitter {
         count++;
       }
     }
-    logger.info({ count }, 'Tamamlanmış zamanlanmış mesajlar temizlendi');
+    logger.info({ count }, 'Completed scheduled messages cleared');
     return count;
   }
 
@@ -260,7 +225,6 @@ class SchedulerService extends EventEmitter {
     const delay = message.scheduledAt.getTime() - Date.now();
 
     if (delay <= 0) {
-      // Should send immediately
       this.sendScheduledMessage(message);
       return;
     }
@@ -281,34 +245,27 @@ class SchedulerService extends EventEmitter {
   }
 
   private async sendScheduledMessage(message: ScheduledMessage): Promise<void> {
-    // Clear timer if exists
     this.clearTimer(message.id);
 
-    // Check connection
     if (!whatsAppService.isReady()) {
       message.status = 'failed';
-      message.error = 'WhatsApp bağlantısı yok';
+      message.error = 'WhatsApp not connected';
       this.scheduledMessages.set(message.id, message);
       this.emit('messageFailed', message);
-      logger.error({ id: message.id }, 'Zamanlanmış mesaj gönderilemedi: Bağlantı yok');
+      logger.error({ id: message.id }, 'Scheduled message failed: No connection');
       return;
     }
 
     try {
-      // Import MessageService here to avoid circular dependency
       const messageService = require('./MessageService').default;
 
-      // Send typing indicator before sending the message (same as normal messages)
       const typingDuration = message.typingDuration ?? 3000;
       try {
         await whatsAppService.sendPresenceUpdate(message.jid, 'composing');
-        // Wait for typing duration
         await this.delay(typingDuration);
-        // Stop typing
         await whatsAppService.sendPresenceUpdate(message.jid, 'paused');
       } catch (typingError) {
-        // Ignore typing errors, continue with sending
-        logger.debug({ error: typingError, jid: message.jid }, 'Typing göstergesi gönderilemedi, mesaj gönderiliyor');
+        logger.debug({ error: typingError, jid: message.jid }, 'Failed to send typing indicator, proceeding with message');
       }
 
       let result;
@@ -316,7 +273,6 @@ class SchedulerService extends EventEmitter {
       if (message.type === 'text') {
         result = await whatsAppService.sendMessage(message.jid, message.message || '');
 
-        // Add to history if successful (same as normal messages)
         if (result.success && result.messageId) {
           messageService.addSentMessage(message.jid, result.messageId, message.message || '', 'text');
         }
@@ -330,7 +286,6 @@ class SchedulerService extends EventEmitter {
           mimetype: message.mimetype,
         });
 
-        // Add to history if successful (same as normal messages)
         if (result.success && result.messageId) {
           messageService.addSentMessage(
             message.jid,
@@ -345,42 +300,35 @@ class SchedulerService extends EventEmitter {
         message.status = 'sent';
         message.messageId = result.messageId;
         this.emit('messageSent', message);
-        logger.info({ id: message.id, messageId: result.messageId }, 'Zamanlanmış mesaj gönderildi');
+        logger.info({ id: message.id, messageId: result.messageId }, 'Scheduled message sent');
       } else {
         message.status = 'failed';
         message.error = result.error;
         this.emit('messageFailed', message);
-        logger.error({ id: message.id, error: result.error }, 'Zamanlanmış mesaj gönderilemedi');
+        logger.error({ id: message.id, error: result.error }, 'Scheduled message failed');
       }
     } catch (error) {
       message.status = 'failed';
-      message.error = error instanceof Error ? error.message : 'Bilinmeyen hata';
+      message.error = error instanceof Error ? error.message : 'Unknown error';
       this.emit('messageFailed', message);
-      logger.error({ id: message.id, error }, 'Zamanlanmış mesaj gönderilemedi');
+      logger.error({ id: message.id, error }, 'Scheduled message failed');
     }
 
     this.scheduledMessages.set(message.id, message);
   }
 
-  /**
-   * Delay helper
-   */
   private delay(ms: number): Promise<void> {
     return new Promise(resolve => setTimeout(resolve, ms));
   }
 
-  /**
-   * Periodic checker to ensure no messages are missed
-   */
   private startScheduleChecker(): void {
     this.checkInterval = setInterval(() => {
       const now = Date.now();
 
       for (const message of this.scheduledMessages.values()) {
         if (message.status === 'pending' && message.scheduledAt.getTime() <= now) {
-          // This message should have been sent
           if (!this.timers.has(message.id)) {
-            logger.warn({ id: message.id }, 'Kaçırılmış zamanlanmış mesaj bulundu, gönderiliyor...');
+            logger.warn({ id: message.id }, 'Missed scheduled message found, sending now...');
             this.sendScheduledMessage(message);
           }
         }
@@ -394,7 +342,6 @@ class SchedulerService extends EventEmitter {
       this.checkInterval = null;
     }
 
-    // Clear all timers
     for (const timer of this.timers.values()) {
       clearTimeout(timer);
     }

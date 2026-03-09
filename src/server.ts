@@ -7,9 +7,6 @@ import { rateLimiter } from './middlewares/rateLimiter';
 import logger from './utils/logger';
 import config from './config';
 
-/**
- * Server Configuration Constants
- */
 const SERVER_CONFIG = {
   JSON_LIMIT: '10mb',
   REQUEST_TIMEOUT_MS: 30000,
@@ -17,20 +14,14 @@ const SERVER_CONFIG = {
   HEADERS_TIMEOUT_MS: 66000,
 } as const;
 
-/**
- * CORS Configuration
- */
 const corsOptions = {
   origin: '*',
   methods: ['GET', 'POST', 'DELETE', 'PUT', 'PATCH'],
   allowedHeaders: ['Content-Type', 'Authorization', 'X-API-Key'],
   credentials: true,
-  maxAge: 86400, // 24 hours preflight cache
+  maxAge: 86400,
 };
 
-/**
- * Helmet Security Configuration
- */
 const helmetOptions = {
   contentSecurityPolicy: false,
   crossOriginEmbedderPolicy: false,
@@ -40,30 +31,20 @@ const helmetOptions = {
 export const createServer = (): Application => {
   const app = express();
 
-  // Trust proxy for proper IP detection behind reverse proxy
   app.set('trust proxy', 1);
-
-  // Security middleware
   app.use(helmet(helmetOptions));
   app.use(cors(corsOptions));
-
-  // Body parsers with size limits
   app.use(express.json({ limit: SERVER_CONFIG.JSON_LIMIT }));
   app.use(express.urlencoded({ extended: true, limit: SERVER_CONFIG.JSON_LIMIT }));
-
-  // Rate limiting
   app.use(rateLimiter);
 
-  // Request logging middleware with performance tracking
   app.use((req: Request, res: Response, next: NextFunction) => {
     const start = process.hrtime.bigint();
     const requestId = `${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
-
-    // Add request ID to headers for tracing
     res.setHeader('X-Request-ID', requestId);
 
     res.on('finish', () => {
-      const duration = Number(process.hrtime.bigint() - start) / 1_000_000; // Convert to ms
+      const duration = Number(process.hrtime.bigint() - start) / 1_000_000;
       const logData = {
         requestId,
         method: req.method,
@@ -73,19 +54,13 @@ export const createServer = (): Application => {
         userAgent: req.get('user-agent')?.substring(0, 50),
       };
 
-      // Log level based on status code
-      if (res.statusCode >= 500) {
-        logger.error(logData, 'Request error');
-      } else if (res.statusCode >= 400) {
-        logger.warn(logData, 'Request failed');
-      } else {
-        logger.debug(logData, 'Request completed');
-      }
+      if (res.statusCode >= 500) logger.error(logData, 'Request error');
+      else if (res.statusCode >= 400) logger.warn(logData, 'Request failed');
+      else logger.debug(logData, 'Request completed');
     });
     next();
   });
 
-  // Health check endpoint (no auth required)
   app.get('/health', (_: Request, res: Response) => {
     const memoryUsage = process.memoryUsage();
     res.status(200).json({
@@ -101,10 +76,7 @@ export const createServer = (): Application => {
     });
   });
 
-  // API routes
   app.use('/api', routes);
-
-  // Error handlers
   app.use(notFoundHandler);
   app.use(errorHandler);
 
@@ -122,7 +94,6 @@ export const startServer = (app: Application): void => {
     logger.info(`API base URL: http://localhost:${config.port}/api`);
   });
 
-  // Configure server timeouts for SSE and long-polling
   server.keepAliveTimeout = SERVER_CONFIG.KEEP_ALIVE_TIMEOUT_MS;
   server.headersTimeout = SERVER_CONFIG.HEADERS_TIMEOUT_MS;
 };

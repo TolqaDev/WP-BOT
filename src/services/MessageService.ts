@@ -21,7 +21,7 @@ class MessageService {
     isPinned: boolean;
     isMuted: boolean;
   }> = new Map();
-  private readonly maxHistoryPerChat = 500; // Increased for better history
+  private readonly maxHistoryPerChat = 500;
 
   private constructor() {
     this.setupMessageListener();
@@ -36,41 +36,28 @@ class MessageService {
 
   private setupMessageListener(): void {
     whatsAppService.on('message', (message: IncomingMessage) => {
-      // Skip group messages
-      if (message.isGroup) {
-        logger.debug({ from: message.from }, 'Grup mesajı atlandı');
-        return;
-      }
+      if (message.isGroup) return;
       this.addToHistory(message);
     });
   }
 
   private addToHistory(message: IncomingMessage): void {
     const jid = message.from;
-
-    // Skip group chats
-    if (this.isGroupJid(jid)) {
-      return;
-    }
+    if (this.isGroupJid(jid)) return;
 
     if (!this.messageHistory.has(jid)) {
       this.messageHistory.set(jid, []);
     }
 
     const history = this.messageHistory.get(jid)!;
-
-    // Avoid duplicates
-    const exists = history.some(m => m.id === message.id);
-    if (!exists) {
+    if (!history.some(m => m.id === message.id)) {
       history.push(message);
     }
 
-    // Keep only the last N messages
     if (history.length > this.maxHistoryPerChat) {
       history.shift();
     }
 
-    // Update chat metadata
     if (!this.chatMetadata.has(jid)) {
       this.chatMetadata.set(jid, {
         name: message.fromName || '',
@@ -81,27 +68,18 @@ class MessageService {
       });
     }
 
-    // Increment unread count for incoming messages
     if (!message.isFromMe) {
       const metadata = this.chatMetadata.get(jid)!;
       metadata.unreadCount++;
-      if (message.fromName) {
-        metadata.name = message.fromName;
-      }
+      if (message.fromName) metadata.name = message.fromName;
       this.chatMetadata.set(jid, metadata);
     }
 
-    logger.debug({ jid, messageCount: history.length }, 'Mesaj geçmişe eklendi');
+    logger.debug({ jid, messageCount: history.length }, 'Message added to history');
   }
 
-  /**
-   * Add a sent message to history
-   */
   public addSentMessage(jid: string, messageId: string, content: string, type: string = 'text'): void {
-    // Skip group chats
-    if (this.isGroupJid(jid)) {
-      return;
-    }
+    if (this.isGroupJid(jid)) return;
 
     const formattedJid = this.formatJid(jid);
 
@@ -114,7 +92,7 @@ class MessageService {
       type: type as any,
       isGroup: false,
       isFromMe: true,
-      fromMe: true,  // Client compatibility
+      fromMe: true,
       isRead: true,
     };
 
@@ -126,26 +104,19 @@ class MessageService {
   }
 
   private formatJid(jid: string): string {
-    // Önce JID zaten doğru formatta mı kontrol et
     if (jid.includes('@s.whatsapp.net')) {
-      // JID'den sadece numara ve domain kısmını al (device ID'yi kaldır)
       const parts = jid.split('@');
-      const phone = parts[0].split(':')[0]; // 905079249858:10 -> 905079249858
+      const phone = parts[0].split(':')[0];
       return `${phone}@s.whatsapp.net`;
     }
 
     if (jid.includes('@g.us')) {
-      return jid; // Grup JID'lerini olduğu gibi döndür
+      return jid;
     }
 
-    // Telefon numarasını normalleştir
-    // "+90 533 088 61 08", "++90 533 088 61 08", "5330886108" gibi formatları destekle
-    let cleaned = jid.replace(/[^\d]/g, ''); // Sadece rakamları tut
-
-    // Başındaki sıfırları kaldır
+    let cleaned = jid.replace(/[^\d]/g, '');
     cleaned = cleaned.replace(/^0+/, '');
 
-    // 10 haneli numara ve 90 ile başlamıyorsa, Türkiye kodu ekle
     if (cleaned.length === 10 && !cleaned.startsWith('90')) {
       cleaned = '90' + cleaned;
     }
@@ -153,22 +124,13 @@ class MessageService {
     return `${cleaned}@s.whatsapp.net`;
   }
 
-  /**
-   * Send a message (text or media) with typing indicator
-   * If scheduledAt is provided, the message will be scheduled instead of sent immediately
-   */
   public async sendMessage(payload: SendMessagePayload): Promise<SendMessageResult> {
     const { jid, message, type = 'text', scheduledAt, typingDuration = 3000 } = payload;
 
-    // Check for group JID
     if (this.isGroupJid(jid) || this.isGroupJid(this.formatJid(jid))) {
-      return {
-        success: false,
-        error: 'Grup sohbetlerine mesaj gönderilemez',
-      };
+      return { success: false, error: 'Cannot send messages to group chats' };
     }
 
-    // If scheduledAt is provided, schedule the message instead
     if (scheduledAt) {
       try {
         const schedulerService = require('./SchedulerService').default;
@@ -191,74 +153,64 @@ class MessageService {
       } catch (error) {
         return {
           success: false,
-          error: error instanceof Error ? error.message : 'Mesaj zamanlanamadı',
+          error: error instanceof Error ? error.message : 'Failed to schedule message',
         };
       }
     }
 
-    // Retry configuration for stream errors
+    // Retry configuration
     const maxRetries = 3;
     const retryDelay = 2000;
 
     for (let attempt = 1; attempt <= maxRetries; attempt++) {
-      // Check connection before attempting to send
       if (!whatsAppService.isReady()) {
         if (attempt < maxRetries) {
-          logger.debug({ attempt, maxRetries }, 'Bağlantı hazır değil, bekleniyor...');
+          logger.debug({ attempt, maxRetries }, 'Connection not ready, waiting...');
           await this.waitForConnection(retryDelay * attempt);
           continue;
         }
         return {
           success: false,
-          error: 'WhatsApp bağlantısı yok',
+          error: 'WhatsApp not connected',
         };
       }
 
       try {
-        // Send typing indicator before sending the message (makes it look more human-like)
-        // Wrap in try-catch to handle stream errors gracefully
         try {
           await whatsAppService.sendPresenceUpdate(jid, 'composing');
-          // Wait for typing duration (reduced for reliability)
           await this.delay(Math.min(typingDuration, 2000));
-          // Stop typing
           await whatsAppService.sendPresenceUpdate(jid, 'paused');
         } catch (presenceError) {
-          // Presence error occurred - check if it's a stream error
           const errorMsg = presenceError instanceof Error ? presenceError.message : '';
           const isStreamError = errorMsg.includes('Stream Errored') || errorMsg.includes('xml-not-well-formed');
 
           if (isStreamError && attempt < maxRetries) {
-            logger.warn({ attempt, error: errorMsg }, 'Stream hatası, yeniden bağlanma bekleniyor...');
-            // Wait for reconnection
+            logger.warn({ attempt, error: errorMsg }, 'Stream error, waiting for reconnection...');
             await this.waitForConnection(retryDelay * attempt);
-            continue; // Retry the entire send operation
+            continue;
           }
 
-          // Non-stream error or last attempt - log and continue with send
-          logger.debug({ error: presenceError, jid }, 'Typing göstergesi gönderilemedi, mesaj gönderiliyor');
+          logger.debug({ error: presenceError, jid }, 'Failed to send typing indicator, proceeding with message');
         }
 
-        // Check connection again after presence (in case stream error occurred)
         if (!whatsAppService.isReady()) {
           if (attempt < maxRetries) {
-            logger.debug({ attempt }, 'Bağlantı koptu, yeniden bağlanma bekleniyor...');
+            logger.debug({ attempt }, 'Connection lost, waiting for reconnection...');
             await this.waitForConnection(retryDelay * attempt);
             continue;
           }
           return {
             success: false,
-            error: 'WhatsApp bağlantısı mesaj gönderimi sırasında koptu',
+            error: 'WhatsApp connection lost during message send',
           };
         }
 
-        // Send the actual message
+        // Send the message
         let result: SendMessageResult;
 
         if (type === 'text') {
           result = await whatsAppService.sendMessage(jid, message || '');
         } else {
-          // Media message
           const mediaOptions: MediaSendOptions = {
             type,
             url: payload.mediaUrl,
@@ -271,15 +223,14 @@ class MessageService {
         }
 
         // Check if send failed due to connection
-        if (!result.success && result.error?.includes('bağlantı')) {
+        if (!result.success && result.error?.includes('not connected')) {
           if (attempt < maxRetries) {
-            logger.warn({ attempt, error: result.error }, 'Mesaj gönderimi bağlantı hatası, tekrar deneniyor...');
+            logger.warn({ attempt, error: result.error }, 'Message send connection error, retrying...');
             await this.waitForConnection(retryDelay * attempt);
             continue;
           }
         }
 
-        // Add to history if successful
         if (result.success && result.messageId) {
           const content = type === 'text' ? (message || '') : (payload.caption || `[${type.toUpperCase()}]`);
           this.addSentMessage(jid, result.messageId, content, type);
@@ -288,16 +239,16 @@ class MessageService {
         return result;
 
       } catch (error) {
-        const errorMsg = error instanceof Error ? error.message : 'Bilinmeyen hata';
+        const errorMsg = error instanceof Error ? error.message : 'Unknown error';
         const isStreamError = errorMsg.includes('Stream Errored') || errorMsg.includes('xml-not-well-formed');
 
         if (isStreamError && attempt < maxRetries) {
-          logger.warn({ attempt, error: errorMsg }, 'Mesaj gönderiminde stream hatası, tekrar deneniyor...');
+          logger.warn({ attempt, error: errorMsg }, 'Stream error during message send, retrying...');
           await this.waitForConnection(retryDelay * attempt);
           continue;
         }
 
-        logger.error({ error, jid, attempt }, 'Mesaj gönderimi başarısız');
+        logger.error({ error, jid, attempt }, 'Message send failed');
         return {
           success: false,
           error: errorMsg,
@@ -307,39 +258,30 @@ class MessageService {
 
     return {
       success: false,
-      error: 'Maksimum deneme sayısına ulaşıldı',
+      error: 'Maximum retry attempts reached',
     };
   }
 
-  /**
-   * Wait for WhatsApp connection to be ready
-   */
   private async waitForConnection(timeout: number): Promise<boolean> {
     const startTime = Date.now();
     const checkInterval = 500;
 
     while (Date.now() - startTime < timeout) {
       if (whatsAppService.isReady()) {
-        logger.debug('Bağlantı hazır');
+        logger.debug('Connection ready');
         return true;
       }
       await this.delay(checkInterval);
     }
 
-    logger.warn({ timeout }, 'Bağlantı bekleme süresi doldu');
+    logger.warn({ timeout }, 'Connection wait timeout expired');
     return false;
   }
 
-  /**
-   * Delay helper
-   */
   private delay(ms: number): Promise<void> {
     return new Promise(resolve => setTimeout(resolve, ms));
   }
 
-  /**
-   * Get message history for a specific chat (combines local cache + WhatsApp store)
-   */
   public async getMessageHistoryAsync(jid: string, limit = 50, page = 1): Promise<{
     messages: IncomingMessage[];
     total: number;
@@ -368,7 +310,7 @@ class MessageService {
     try {
       storeHistory = whatsAppService.fetchMessageHistory(jid, 500); // Get more from store
     } catch (error) {
-      logger.debug({ error, jid }, 'Store geçmişi alınamadı');
+      logger.debug({ error, jid }, 'Failed to get store history');
     }
 
     // Combine and deduplicate
@@ -403,10 +345,6 @@ class MessageService {
     };
   }
 
-  /**
-   * Get all chats with filtering, pagination, and sorting
-   * Combines local cache with WhatsApp store data
-   */
   public getAllChats(filters?: ChatFilters): PaginatedResponse<ChatInfo> {
     const {
       archived,
@@ -435,7 +373,7 @@ class MessageService {
         }
       }
     } catch {
-      logger.debug('Store sohbetleri alınamadı');
+      logger.debug('Failed to get store chats');
     }
 
     // Add local chats
@@ -559,9 +497,6 @@ class MessageService {
     };
   }
 
-  /**
-   * Mark chat as read - updates local state AND sends read receipt to WhatsApp
-   */
   public async markChatAsRead(jid: string): Promise<void> {
     if (this.isGroupJid(jid)) {
       return;
@@ -575,7 +510,6 @@ class MessageService {
       this.chatMetadata.set(formattedJid, metadata);
     }
 
-    // Mark messages as read in local history
     const history = this.messageHistory.get(formattedJid);
     if (history) {
       for (const msg of history) {
@@ -583,56 +517,32 @@ class MessageService {
       }
     }
 
-    // Send read receipt to WhatsApp for unread messages
     try {
       await whatsAppService.markMessagesAsRead(formattedJid);
-      logger.debug({ jid: formattedJid }, 'Mesajlar okundu olarak işaretlendi');
+      logger.debug({ jid: formattedJid }, 'Messages marked as read');
     } catch (error) {
-      logger.debug({ error, jid: formattedJid }, 'WhatsApp okundu bildirimi gönderilemedi');
+      logger.debug({ error, jid: formattedJid }, 'Failed to send WhatsApp read receipt');
     }
   }
 
-  /**
-   * Check if number is on WhatsApp
-   */
   public async isOnWhatsApp(phone: string): Promise<ContactInfo | null> {
     return whatsAppService.isOnWhatsApp(phone);
   }
 
-  /**
-   * Get profile info
-   */
   public async getProfileInfo(jid: string): Promise<ProfileInfo | null> {
-    if (this.isGroupJid(jid)) {
-      throw new Error('Grup profilleri desteklenmiyor');
-    }
+    if (this.isGroupJid(jid)) throw new Error('Group profiles are not supported');
     return whatsAppService.getProfileInfo(jid);
   }
 
-  /**
-   * Send typing indicator
-   */
   public async sendTyping(jid: string, duration = 3000): Promise<void> {
-    if (this.isGroupJid(jid)) {
-      throw new Error('Grup sohbetleri desteklenmiyor');
-    }
+    if (this.isGroupJid(jid)) throw new Error('Group profiles not supported');
 
     await whatsAppService.sendPresenceUpdate(jid, 'composing');
-
-    // Stop typing after duration
     setTimeout(async () => {
-      try {
-        await whatsAppService.sendPresenceUpdate(jid, 'paused');
-      } catch {
-        // Ignore errors
-      }
+      try { await whatsAppService.sendPresenceUpdate(jid, 'paused'); } catch { /* ignore */ }
     }, duration);
   }
 
-
-  /**
-   * Get chat statistics
-   */
   public getChatStats(): {
     totalChats: number;
     totalMessages: number;
@@ -669,9 +579,6 @@ class MessageService {
     };
   }
 
-  /**
-   * Get cache statistics
-   */
   public getCacheStats(): {
     messageHistory: { chats: number; totalMessages: number };
     chatMetadata: number;
@@ -692,9 +599,6 @@ class MessageService {
     };
   }
 
-  /**
-   * Clear all caches and free memory
-   */
   public clearAllCaches(): {
     clearedChats: number;
     clearedMessages: number;
@@ -702,29 +606,37 @@ class MessageService {
   } {
     const clearedChats = this.messageHistory.size;
     let clearedMessages = 0;
-
     for (const messages of this.messageHistory.values()) {
       clearedMessages += messages.length;
     }
-
     const clearedMetadata = this.chatMetadata.size;
 
-    // Clear message history
     this.messageHistory.clear();
-
-    // Clear chat metadata
     this.chatMetadata.clear();
 
+    logger.info({ clearedChats, clearedMessages, clearedMetadata }, 'All caches cleared');
+    return { clearedChats, clearedMessages, clearedMetadata };
+  }
+
+  public clearChatCache(jid: string): {
+    clearedMessages: number;
+    jid: string;
+  } {
+    const formattedJid = this.formatJid(jid);
+    const messages = this.messageHistory.get(formattedJid) || [];
+    const clearedMessages = messages.length;
+
+    this.messageHistory.delete(formattedJid);
+    this.chatMetadata.delete(formattedJid);
+
     logger.info({
-      clearedChats,
-      clearedMessages,
-      clearedMetadata
-    }, 'Tüm cache temizlendi');
+      jid: formattedJid,
+      clearedMessages
+    }, 'Chat cache cleared');
 
     return {
-      clearedChats,
       clearedMessages,
-      clearedMetadata
+      jid: formattedJid
     };
   }
 }

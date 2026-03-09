@@ -15,49 +15,27 @@ const router = Router();
 
 router.use(authMiddleware);
 
-// SSE Streams
+// SSE
 router.get('/auth/qr/stream', sseGuard, authController.streamQR.bind(authController));
 router.get('/messages/stream', sseGuard, messageController.streamMessages.bind(messageController));
 router.get('/terminal/stream', sseGuard, terminalController.streamTerminal.bind(terminalController));
 
+// Auth
 router.get('/auth/qr', asyncHandler(authController.getQR.bind(authController)));
 router.get('/auth/qr/image', asyncHandler(authController.getQRImage.bind(authController)));
 router.get('/auth/status', asyncHandler(authController.getStatus.bind(authController)));
 router.post('/auth/logout', asyncHandler(authController.logout.bind(authController)));
 router.post('/auth/cancel', asyncHandler(authController.cancelConnection.bind(authController)));
 
+// Messages
 router.post(
   '/messages/send',
   requireConnection,
   strictRateLimiter(30, 60000),
   asyncHandler(messageController.send.bind(messageController))
 );
-// Message history
 router.get('/messages/history/:jid', asyncHandler(messageController.getHistory.bind(messageController)));
 router.get('/messages/chats', messageController.getChats.bind(messageController));
-
-// Scheduled messages
-router.post(
-  '/messages/schedule',
-  requireConnection,
-  strictRateLimiter(20, 60000),
-  messageController.scheduleMessage.bind(messageController)
-);
-router.get('/messages/scheduled', messageController.getScheduledMessages.bind(messageController));
-router.get('/messages/scheduled/:id', messageController.getScheduledMessage.bind(messageController));
-router.put(
-  '/messages/scheduled/:id',
-  messageController.updateScheduledMessage.bind(messageController)
-);
-router.delete(
-  '/messages/scheduled/completed',
-  messageController.clearCompletedScheduled.bind(messageController)
-);
-router.delete(
-  '/messages/scheduled/:id',
-  messageController.cancelScheduledMessage.bind(messageController)
-);
-
 router.get(
   '/messages/check/:phone',
   requireConnection,
@@ -68,8 +46,6 @@ router.get(
   requireConnection,
   asyncHandler(messageController.getProfile.bind(messageController))
 );
-
-// Message actions
 router.post(
   '/messages/typing/:jid',
   requireConnection,
@@ -80,10 +56,26 @@ router.post(
   requireConnection,
   asyncHandler(messageController.markAsRead.bind(messageController))
 );
-
-// Message stats
 router.get('/messages/stats', messageController.getChatStats.bind(messageController));
 
+// Scheduled Messages
+router.post(
+  '/messages/schedule',
+  requireConnection,
+  strictRateLimiter(20, 60000),
+  messageController.scheduleMessage.bind(messageController)
+);
+router.get('/messages/scheduled', messageController.getScheduledMessages.bind(messageController));
+router.get('/messages/scheduled/:id', messageController.getScheduledMessage.bind(messageController));
+router.put('/messages/scheduled/:id', messageController.updateScheduledMessage.bind(messageController));
+router.delete('/messages/scheduled/completed', messageController.clearCompletedScheduled.bind(messageController));
+router.delete('/messages/scheduled/:id', messageController.cancelScheduledMessage.bind(messageController));
+
+// Cache
+router.delete('/messages/cache', messageController.clearAllCache.bind(messageController));
+router.delete('/messages/cache/:jid', messageController.clearChatCache.bind(messageController));
+
+// Bulk
 router.post(
   '/bulk/send',
   requireConnection,
@@ -99,10 +91,9 @@ router.post('/bulk/cancel/:jobId', bulkController.cancel.bind(bulkController));
 router.delete('/bulk/job/:jobId', bulkController.delete.bind(bulkController));
 router.delete('/bulk/completed', bulkController.clearCompleted.bind(bulkController));
 
+// Settings & Stats
 router.get('/settings', settingsController.getSettings.bind(settingsController));
 router.put('/settings', settingsController.updateSettings.bind(settingsController));
-
-// Stats - Tek endpoint ile tüm istatistikler
 router.get('/stats', statsController.getStats.bind(statsController));
 
 export default router;

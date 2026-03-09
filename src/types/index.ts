@@ -29,7 +29,7 @@ export interface IncomingMessage {
   fileName?: string;
 }
 
-export type MessageType = 'text' | 'image' | 'video' | 'audio' | 'document' | 'sticker' | 'location' | 'contact';
+export type MessageType = 'text' | 'image' | 'video' | 'audio' | 'ptt' | 'document' | 'sticker' | 'location' | 'liveLocation' | 'vcard' | 'contact' | 'poll' | 'event';
 
 export interface SendMessagePayload {
   jid: string;
@@ -210,24 +210,20 @@ export type BulkJobStatus = 'queued' | 'scheduled' | 'processing' | 'paused' | '
 export interface BulkSendPayload {
   recipients: string[];
   message?: string;
-  // Message type and media
   type?: MessageType;
   mediaUrl?: string;
   mediaBase64?: string;
   caption?: string;
   fileName?: string;
   mimetype?: string;
-  // Scheduling
-  scheduledAt?: string; // ISO date string - when to start the job
-  // Time window - only send during these hours
+  scheduledAt?: string;
   timeWindow?: {
-    startTime: string; // HH:mm format
-    endTime: string;   // HH:mm format
+    startTime: string;
+    endTime: string;
   };
-  // Timing settings
-  typingDuration?: number; // Typing indicator duration in ms (default: 3000)
-  minDelay?: number; // Minimum delay between messages in ms (default: 3000)
-  maxDelay?: number; // Maximum delay between messages in ms (default: 5000)
+  typingDuration?: number;
+  minDelay?: number;
+  maxDelay?: number;
 }
 
 export interface BulkJobStats {
@@ -240,18 +236,15 @@ export interface BulkJobStats {
   progress: number;
   isPaused: boolean;
   pauseReason?: string;
-  // Timing info
   createdAt: string;
   startedAt?: string;
   scheduledAt?: string;
   completedAt?: string;
   estimatedCompletionTime?: string;
-  averageMessageTime?: number; // Average time per message in ms
-  // Message content
+  averageMessageTime?: number;
   message?: string;
   caption?: string;
   mediaUrl?: string;
-  // Settings info
   messageType: MessageType;
   hasMedia: boolean;
   typingDuration: number;
@@ -312,6 +305,7 @@ export interface AppConfig {
   rateLimit: RateLimitConfig;
   security: SecurityConfig;
   whatsapp: WhatsAppConfig;
+  cacheClearInterval: number;
 }
 
 export interface CallRejectSettings {

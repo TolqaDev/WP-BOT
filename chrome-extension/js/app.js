@@ -11,7 +11,7 @@ class WhatsAppBOTApp {
       isConnecting: false,
       hasSession: false,
       sessionInfo: null,
-      currentTab: 'dashboard',
+      currentTab: 'chats',
       currentChatJid: null,
       currentChatFilter: 'all',
       newChatJid: null,
@@ -19,7 +19,9 @@ class WhatsAppBOTApp {
       singleScheduleMode: 'now', // now or later
       singleMessageType: 'text',
       unreadCount: 0,
-      unreadChats: new Set()
+      unreadChats: new Set(),
+      corsWhiteList: [],
+      clientIp: null
     };
   }
 
@@ -28,7 +30,9 @@ class WhatsAppBOTApp {
   async init() {
     try {
       await api.init();
+      await this.loadTheme();
       this.setupEventListeners();
+      utils.initTooltips();
       await this.loadSettings();
 
       // API bağlantısını test et
@@ -37,9 +41,13 @@ class WhatsAppBOTApp {
         this.state.apiReady = true;
         this.updateSidebarLock();
 
-        // Bağlıysa sohbetler tab'ına geç
         if (this.state.isConnected) {
+          this.hideConnectionOverlay();
           this.switchTab('chats');
+          this.updateApiStatusDot('connected');
+        } else {
+          this.showConnectionOverlay();
+          this.updateApiStatusDot('connected');
         }
       } catch (connectionError) {
         console.error('Initial connection check failed:', connectionError);
@@ -48,15 +56,16 @@ class WhatsAppBOTApp {
         this.state.isConnecting = false;
         this.updateConnectionUI();
         this.updateSidebarLock();
-        // API yoksa ayarları aç
-        this.expandApiSettings();
+        this.updateApiStatusDot('error');
+        this.showConnectionOverlay();
+        setTimeout(() => this.openApiModal(), 600);
       }
 
       this.hideLoadingScreen();
       this.startAutoRefresh();
 
-      // Eğer bağlıysa ve SSE aktif değilse, başlat
-      if (this.state.isConnected && !api.isMessageStreamActive()) {
+      // Always start SSE message stream when connected - regardless of active tab
+      if (this.state.isConnected) {
         this.startGlobalMessageStream();
       }
     } catch (error) {
@@ -66,7 +75,9 @@ class WhatsAppBOTApp {
         this.hideLoadingScreen();
         this.state.apiReady = false;
         this.updateSidebarLock();
-        this.expandApiSettings();
+        this.updateApiStatusDot('');
+        this.showConnectionOverlay();
+        setTimeout(() => this.openApiModal(), 300);
       }, 1500);
     }
   }
@@ -94,30 +105,106 @@ class WhatsAppBOTApp {
 
   setupEventListeners() {
     // Sidebar navigation
-    document.querySelectorAll('.sidebar-nav-item').forEach(item => {
+    document.querySelectorAll('.sidebar-nav-item[data-tab]').forEach(item => {
       item.addEventListener('click', () => this.switchTab(item.dataset.tab));
     });
 
-    // QR Panel - Inline API Settings
-    document.getElementById('qr-api-toggle')?.addEventListener('click', () => this.toggleApiSettings());
+    // Theme toggle
+    document.getElementById('theme-toggle')?.addEventListener('click', () => this.toggleTheme());
+
+    // Sidebar API settings button
+    document.getElementById('sidebar-api-settings')?.addEventListener('click', () => this.openApiModal());
+
+    // API Settings Modal
+    document.getElementById('api-settings-trigger')?.addEventListener('click', () => this.openApiModal());
+    document.getElementById('api-modal-close')?.addEventListener('click', () => this.closeApiModal());
+    document.getElementById('api-modal-backdrop')?.addEventListener('click', () => this.closeApiModal());
     document.getElementById('save-settings')?.addEventListener('click', () => this.saveSettings());
     document.getElementById('test-connection')?.addEventListener('click', () => this.testConnection());
     document.getElementById('toggle-api-key')?.addEventListener('click', () => this.toggleApiKeyVisibility());
+    document.getElementById('add-server-btn')?.addEventListener('click', () => this.openApiModal('add-server'));
+
+    // Modal tab switching
+    document.querySelectorAll('.modal-tab[data-modal-tab]').forEach(tab => {
+      tab.addEventListener('click', () => this.switchModalTab(tab.dataset.modalTab));
+    });
 
     // Dashboard - Server Settings
     document.getElementById('save-server-settings')?.addEventListener('click', () => this.saveServerSettings());
     document.getElementById('refresh-server-settings')?.addEventListener('click', () => this.loadServerSettings());
     document.getElementById('retry-server-settings')?.addEventListener('click', () => this.loadServerSettings());
 
+    // Cache management
+    document.getElementById('chat-clear-cache-btn')?.addEventListener('click', () => this.clearCurrentChatCache());
+    document.getElementById('clear-all-cache-btn')?.addEventListener('click', () => this.clearAllCachesAction());
+
+    // Terminal Log Popup
+    document.getElementById('terminal-log-btn')?.addEventListener('click', () => this.openTerminalPopup());
+    document.getElementById('terminal-close-btn')?.addEventListener('click', () => this.closeTerminalPopup());
+    document.getElementById('terminal-clear-btn')?.addEventListener('click', () => this.clearTerminalOutput());
+    document.getElementById('terminal-scroll-btn')?.addEventListener('click', () => {
+      const output = document.getElementById('terminal-output');
+      if (output) output.scrollTop = output.scrollHeight;
+    });
+
+    // Typing Duration slider (stored in addon as ms, displayed as seconds)
+    document.getElementById('typing-duration')?.addEventListener('input', (e) => {
+      const sec = parseInt(e.target.value);
+      const label = document.getElementById('typing-duration-value');
+      if (label) label.textContent = sec === 0 ? 'Kapalı' : `${sec} sn`;
+    });
+    document.getElementById('typing-duration')?.addEventListener('change', (e) => {
+      const sec = parseInt(e.target.value);
+      if (typeof chrome !== 'undefined' && chrome.storage) {
+        chrome.storage.local.set({ typingDuration: sec * 1000 });
+      }
+    });
+    // Load saved typing duration
+    if (typeof chrome !== 'undefined' && chrome.storage) {
+      chrome.storage.local.get(['typingDuration'], (result) => {
+        const ms = result.typingDuration || 0;
+        const sec = Math.round(ms / 1000);
+        const slider = document.getElementById('typing-duration');
+        const label = document.getElementById('typing-duration-value');
+        if (slider) slider.value = sec;
+        if (label) label.textContent = sec === 0 ? 'Kapalı' : `${sec} sn`;
+      });
+    }
+
+    // Sync PC time button
+    document.getElementById('sync-pc-time')?.addEventListener('click', () => {
+      const now = new Date();
+      const tz = Intl.DateTimeFormat().resolvedOptions().timeZone;
+      const timezoneSelect = document.getElementById('server-timezone');
+      if (timezoneSelect) {
+        // Add timezone if not in list
+        if (!timezoneSelect.querySelector(`option[value="${tz}"]`)) {
+          const option = document.createElement('option');
+          option.value = tz;
+          option.textContent = tz;
+          timezoneSelect.appendChild(option);
+        }
+        timezoneSelect.value = tz;
+      }
+      const timeEl = document.getElementById('server-time');
+      if (timeEl) timeEl.textContent = now.toLocaleString('tr-TR', { timeZone: tz });
+      utils.toast(`Saat dilimi ${tz} olarak ayarlandı`, 'success');
+    });
+
+    // CORS tag input
+    document.getElementById('cors-add-btn')?.addEventListener('click', () => this.addCorsTag());
+    document.getElementById('cors-new-ip')?.addEventListener('keydown', (e) => {
+      if (e.key === 'Enter') { e.preventDefault(); this.addCorsTag(); }
+    });
+
+    // Fetch client IP for self-detection
+    this.fetchClientIp();
+
 
     // Connection
     document.getElementById('connect-btn').addEventListener('click', () => this.connect());
     document.getElementById('disconnect-btn').addEventListener('click', () => this.disconnect());
 
-    // Dashboard quick actions
-    document.querySelectorAll('.quick-action-btn').forEach(btn => {
-      btn.addEventListener('click', () => this.handleQuickAction(btn.dataset.action));
-    });
     document.getElementById('refresh-stats')?.addEventListener('click', () => this.loadStats());
 
     // Chats Tab
@@ -141,9 +228,6 @@ class WhatsAppBOTApp {
     // Active Chat
     document.getElementById('chat-back-btn').addEventListener('click', () => this.closeChat());
     document.getElementById('chat-close-btn').addEventListener('click', () => this.closeChat());
-    document.getElementById('chat-refresh-btn').addEventListener('click', () => {
-      if (this.state.currentChatJid) this.openChat(this.state.currentChatJid);
-    });
     document.getElementById('chat-send-btn').addEventListener('click', () => this.sendChatMessage());
     document.getElementById('chat-message-input').addEventListener('keypress', (e) => {
       if (e.key === 'Enter' && !e.shiftKey) {
@@ -172,6 +256,10 @@ class WhatsAppBOTApp {
       opt.addEventListener('click', () => this.setSingleMessageType(opt.dataset.type));
     });
     document.getElementById('single-send-btn').addEventListener('click', () => this.handleSingleSend());
+    document.getElementById('single-message').addEventListener('input', (e) => {
+      const counter = document.getElementById('single-char-count');
+      if (counter) counter.textContent = e.target.value.length;
+    });
 
     // Set min datetime
     const datetimeInput = document.getElementById('single-datetime');
@@ -188,22 +276,38 @@ class WhatsAppBOTApp {
       opt.addEventListener('click', () => this.setBulkMessageType(opt.dataset.bulkType));
     });
     document.getElementById('bulk-recipients').addEventListener('input', (e) => this.updateRecipientCount(e.target.value));
-    document.getElementById('bulk-time-window').addEventListener('change', (e) => {
-      utils.toggle('time-window-group', e.target.checked);
+    document.getElementById('bulk-message').addEventListener('input', (e) => this.updateBulkCharCount(e.target.value));
+
+    // Bulk time window toggle buttons
+    document.querySelectorAll('.schedule-option[data-time-window]').forEach(opt => {
+      opt.addEventListener('click', () => {
+        document.querySelectorAll('.schedule-option[data-time-window]').forEach(o => o.classList.remove('active'));
+        opt.classList.add('active');
+        const isOn = opt.dataset.timeWindow === 'on';
+        document.getElementById('bulk-time-window').checked = isOn;
+        utils.toggle('time-window-group', isOn);
+      });
     });
-    document.getElementById('bulk-schedule-enabled')?.addEventListener('change', (e) => {
-      utils.toggle('bulk-schedule-datetime', e.target.checked);
-      if (e.target.checked) {
-        const datetimeInput = document.getElementById('bulk-start-datetime');
-        if (datetimeInput) {
-          datetimeInput.min = utils.getMinScheduleDate();
-          // Varsayılan: 1 saat sonra
-          const defaultDate = new Date();
-          defaultDate.setHours(defaultDate.getHours() + 1);
-          defaultDate.setMinutes(0);
-          datetimeInput.value = utils.toLocalISOString(defaultDate);
+
+    // Bulk schedule toggle buttons
+    document.querySelectorAll('.schedule-option[data-bulk-schedule]').forEach(opt => {
+      opt.addEventListener('click', () => {
+        document.querySelectorAll('.schedule-option[data-bulk-schedule]').forEach(o => o.classList.remove('active'));
+        opt.classList.add('active');
+        const isLater = opt.dataset.bulkSchedule === 'later';
+        document.getElementById('bulk-schedule-enabled').checked = isLater;
+        utils.toggle('bulk-schedule-datetime', isLater);
+        if (isLater) {
+          const datetimeInput = document.getElementById('bulk-start-datetime');
+          if (datetimeInput) {
+            datetimeInput.min = utils.getMinScheduleDate();
+            const defaultDate = new Date();
+            defaultDate.setHours(defaultDate.getHours() + 1);
+            defaultDate.setMinutes(0);
+            datetimeInput.value = utils.toLocalISOString(defaultDate);
+          }
         }
-      }
+      });
     });
 
     // Bulk datetime focus'ta min güncelle
@@ -217,25 +321,26 @@ class WhatsAppBOTApp {
     document.getElementById('refresh-jobs').addEventListener('click', () => this.loadBulkJobs());
     document.getElementById('refresh-scheduled').addEventListener('click', () => this.loadScheduledMessages());
     document.getElementById('clear-completed-scheduled').addEventListener('click', () => this.clearCompletedScheduled());
+    document.getElementById('clear-completed-bulk')?.addEventListener('click', () => this.clearCompletedBulk());
   }
 
   // ==================== TAB SWITCHING ====================
 
   switchTab(tabId) {
-    // API bağlantısı yoksa sadece dashboard'a izin ver
-    if (!this.state.apiReady && tabId !== 'dashboard') {
+    // API bağlantısı yoksa hiçbir tab'a izin verme
+    if (!this.state.apiReady) {
       utils.toast('Önce API bağlantısını yapılandırın', 'warning');
       return;
     }
 
-    // WhatsApp bağlı değilse sohbet ve gönderime izin verme
-    if (tabId !== 'dashboard' && !this.state.isConnected) {
+    // WhatsApp bağlı değilse hiçbir tab'a izin verme
+    if (!this.state.isConnected) {
       utils.toast('WhatsApp bağlı değil. Önce bağlantı kurun.', 'warning');
       return;
     }
 
-    // Update sidebar
-    document.querySelectorAll('.sidebar-nav-item').forEach(item => {
+    // Update sidebar nav
+    document.querySelectorAll('.sidebar-nav-item[data-tab]').forEach(item => {
       item.classList.toggle('active', item.dataset.tab === tabId);
     });
 
@@ -253,6 +358,12 @@ class WhatsAppBOTApp {
     document.getElementById('page-title').textContent = titles[tabId] || tabId;
 
     this.state.currentTab = tabId;
+
+    // Stop chat-specific SSE stream when leaving chats tab to prevent read receipts
+    // Also close the chat detail view so it resets properly
+    if (tabId !== 'chats' && this.state.currentChatJid) {
+      this.closeChat();
+    }
 
     // Load tab data
     switch (tabId) {
@@ -325,10 +436,6 @@ class WhatsAppBOTApp {
   updateConnectionUI() {
     const { isConnected, isConnecting, sessionInfo } = this.state;
 
-    // Connection indicator in sidebar
-    const indicator = document.getElementById('connection-indicator');
-    indicator.classList.remove('connected', 'connecting', 'disconnected');
-    indicator.classList.add(isConnected ? 'connected' : isConnecting ? 'connecting' : 'disconnected');
 
     // Connection badge in header
     const badge = document.getElementById('connection-status');
@@ -365,14 +472,19 @@ class WhatsAppBOTApp {
       this.resetConnectButton();
     }
 
-    // Dashboard views
-    const qrView = document.getElementById('dashboard-qr-view');
+    // Connection overlay
+    if (isConnected) {
+      this.hideConnectionOverlay();
+    } else {
+      this.showConnectionOverlay();
+    }
+
+    // Dashboard connected view
     const connectedView = document.getElementById('dashboard-connected-view');
     const qrPlaceholder = document.getElementById('qr-placeholder');
     const qrImage = document.getElementById('qr-image');
 
     if (isConnected) {
-      utils.hide(qrView);
       utils.show(connectedView);
 
       if (sessionInfo) {
@@ -380,16 +492,19 @@ class WhatsAppBOTApp {
         document.getElementById('session-phone').textContent = utils.formatPhone(sessionInfo.phone);
       }
 
+      // Update API info display in connected dashboard
+      this.updateApiInfoDisplay();
+      this.updateApiStatusDot('connected');
+
       // Bağlandığında sunucu ayarlarını yükle
       this.loadServerSettings();
     } else {
-      utils.show(qrView);
       utils.hide(connectedView);
 
       if (!isConnecting) {
         utils.show(qrPlaceholder);
         qrImage.classList.add('hidden');
-        qrImage.src = ''; // Clear old QR
+        qrImage.src = '';
       }
     }
 
@@ -398,6 +513,14 @@ class WhatsAppBOTApp {
   }
 
   async connect() {
+    // Check if any API server is configured
+    const servers = await this.getSavedServers();
+    if (servers.length === 0 && !this.state.apiReady) {
+      utils.toast('Önce bir sunucu eklemeniz gerekiyor', 'warning');
+      this.openApiModal('add-server');
+      return;
+    }
+
     try {
       this.state.isConnecting = true;
       this.state.isConnected = false;
@@ -617,7 +740,7 @@ class WhatsAppBOTApp {
   }
 
   async disconnect() {
-    if (!confirm('WhatsApp oturumundan çıkmak istediğinize emin misiniz?')) return;
+    if (!await utils.showConfirm('WhatsApp oturumundan çıkmak istediğinize emin misiniz?')) return;
 
     try {
       utils.setLoading('disconnect-btn', true, 'Çıkış...');
@@ -679,34 +802,434 @@ class WhatsAppBOTApp {
 
   // ==================== SETTINGS ====================
 
+  // ==================== CONNECTION OVERLAY & API MODAL ====================
+
   /**
-   * API ayarları alanını aç/kapat (QR panelindeki)
+   * Show connection overlay (full-screen QR view)
    */
-  toggleApiSettings() {
-    const body = document.getElementById('qr-api-body');
-    const chevron = document.getElementById('qr-api-chevron');
-    if (body) {
-      const isOpen = !body.classList.contains('hidden');
-      if (isOpen) {
-        body.classList.add('hidden');
-        chevron?.classList.remove('open');
+  showConnectionOverlay() {
+    const overlay = document.getElementById('connection-overlay');
+    if (overlay) overlay.classList.add('active');
+  }
+
+  /**
+   * Hide connection overlay
+   */
+  hideConnectionOverlay() {
+    const overlay = document.getElementById('connection-overlay');
+    if (overlay) overlay.classList.remove('active');
+  }
+
+  /**
+   * Open API settings modal with animation
+   * @param {string} tab - 'servers' or 'add-server'
+   */
+  openApiModal(tab = 'servers', prefillData = null) {
+    const backdrop = document.getElementById('api-modal-backdrop');
+    const modal = document.getElementById('api-modal');
+    if (!backdrop || !modal) return;
+
+    backdrop.classList.remove('hidden');
+    modal.classList.remove('hidden');
+
+    // Trigger animation after DOM update
+    requestAnimationFrame(() => {
+      backdrop.classList.add('visible');
+      modal.classList.add('visible');
+    });
+
+    // Switch to requested tab (this clears the form if add-server)
+    this.switchModalTab(tab);
+
+    // Pre-fill form data AFTER clearing (for edit mode)
+    if (prefillData) {
+      const urlInput = document.getElementById('api-url');
+      const keyInput = document.getElementById('api-key');
+      if (urlInput) urlInput.value = prefillData.url || '';
+      if (keyInput) keyInput.value = prefillData.key || '';
+    }
+
+    // Update modal status dot
+    this.updateApiModalStatus();
+
+    // Render saved servers in modal
+    this.renderModalServerList();
+  }
+
+  /**
+   * Switch modal tabs
+   */
+  switchModalTab(tabName) {
+    document.querySelectorAll('.modal-tab').forEach(t => t.classList.remove('active'));
+    document.querySelectorAll('.modal-tab-content').forEach(c => c.classList.remove('active'));
+
+    const tab = document.querySelector(`.modal-tab[data-modal-tab="${tabName}"]`);
+    const content = document.getElementById(`modal-tab-${tabName}`);
+    if (tab) tab.classList.add('active');
+    if (content) content.classList.add('active');
+
+    // Clear add-server form inputs when switching to that tab
+    if (tabName === 'add-server') {
+      this.clearAddServerForm();
+    }
+  }
+
+  /**
+   * Clear add-server form inputs
+   */
+  clearAddServerForm() {
+    const urlInput = document.getElementById('api-url');
+    const keyInput = document.getElementById('api-key');
+    if (urlInput) urlInput.value = '';
+    if (keyInput) keyInput.value = '';
+  }
+
+  /**
+   * Close API settings modal with animation
+   */
+  closeApiModal() {
+    const backdrop = document.getElementById('api-modal-backdrop');
+    const modal = document.getElementById('api-modal');
+    if (!backdrop || !modal) return;
+
+    backdrop.classList.remove('visible');
+    modal.classList.remove('visible');
+
+    setTimeout(() => {
+      backdrop.classList.add('hidden');
+      modal.classList.add('hidden');
+    }, 300);
+  }
+
+  /**
+   * Update API modal status indicator
+   */
+  updateApiModalStatus() {
+    const dot = document.getElementById('api-modal-status-dot');
+    const text = document.getElementById('api-modal-status-text');
+    const triggerDot = document.getElementById('api-trigger-dot');
+
+    if (this.state.apiReady) {
+      if (dot) { dot.classList.remove('error'); dot.classList.add('connected'); }
+      if (text) text.textContent = 'API bağlantısı aktif';
+      if (triggerDot) { triggerDot.classList.remove('error'); triggerDot.classList.add('connected'); }
+    } else {
+      if (dot) { dot.classList.remove('connected'); dot.classList.add('error'); }
+      if (text) text.textContent = 'API bağlantısı yapılmadı';
+      if (triggerDot) { triggerDot.classList.remove('connected'); triggerDot.classList.add('error'); }
+    }
+  }
+
+  /**
+   * Clear API settings from storage and reset UI
+   */
+  async clearApiSettings() {
+    if (!await utils.showConfirm('API bağlantı bilgileri silinecek. Devam etmek istiyor musunuz?')) return;
+
+    // Clear from chrome storage
+    if (typeof chrome !== 'undefined' && chrome.storage) {
+      chrome.storage.local.remove(['apiUrl', 'apiKey'], () => {
+        utils.toast('API bilgileri temizlendi', 'success');
+      });
+    } else {
+      localStorage.removeItem('apiUrl');
+      localStorage.removeItem('apiKey');
+      utils.toast('API bilgileri temizlendi', 'success');
+    }
+
+    // Clear input fields
+    const urlInput = document.getElementById('api-url');
+    const keyInput = document.getElementById('api-key');
+    if (urlInput) urlInput.value = '';
+    if (keyInput) keyInput.value = '';
+
+    // Reset API state
+    this.state.apiReady = false;
+    this.state.isConnected = false;
+    api.baseUrl = '';
+    api.apiKey = '';
+
+    // Stop all active streams
+    this.stopGlobalMessageStream();
+    this.stopChatStream();
+
+    // Update status dot
+    this.updateApiStatusDot('');
+
+    // Update connection UI
+    this.updateConnectionUI();
+
+    // Update sidebar locks
+    this.updateSidebarLock();
+
+    // Show connection overlay
+    this.showConnectionOverlay();
+
+    // Close modal if open and reopen for re-entry
+    this.closeApiModal();
+    setTimeout(() => this.openApiModal(), 400);
+  }
+
+  /**
+   * Update the API status dot indicator
+   */
+  updateApiStatusDot(status) {
+    // Update trigger button dot
+    const triggerDot = document.getElementById('api-trigger-dot');
+    if (triggerDot) {
+      triggerDot.classList.remove('connected', 'error');
+      if (status === 'connected') triggerDot.classList.add('connected');
+      else if (status === 'error') triggerDot.classList.add('error');
+    }
+
+    // Update modal status dot
+    const modalDot = document.getElementById('api-modal-status-dot');
+    const modalText = document.getElementById('api-modal-status-text');
+    if (modalDot) {
+      modalDot.classList.remove('connected', 'error');
+      if (status === 'connected') {
+        modalDot.classList.add('connected');
+        if (modalText) modalText.textContent = 'API bağlantısı aktif';
+      } else if (status === 'error') {
+        modalDot.classList.add('error');
+        if (modalText) modalText.textContent = 'API bağlantı hatası';
       } else {
-        body.classList.remove('hidden');
-        chevron?.classList.add('open');
+        if (modalText) modalText.textContent = 'Sunucu bilgilerinizi girin';
       }
     }
   }
 
   /**
-   * API ayarları alanını zorla aç
+   * Update API info display - render server lists in dashboard and modal
    */
-  expandApiSettings() {
-    const body = document.getElementById('qr-api-body');
-    const chevron = document.getElementById('qr-api-chevron');
-    if (body) {
-      body.classList.remove('hidden');
-      chevron?.classList.add('open');
+  updateApiInfoDisplay() {
+    this.renderServerList();
+    this.renderModalServerList();
+  }
+
+  /**
+   * Load saved servers from storage
+   */
+  async getSavedServers() {
+    return new Promise((resolve) => {
+      if (typeof chrome !== 'undefined' && chrome.storage) {
+        chrome.storage.local.get(['savedServers'], (result) => {
+          resolve(result.savedServers || []);
+        });
+      } else {
+        const saved = localStorage.getItem('savedServers');
+        resolve(saved ? JSON.parse(saved) : []);
+      }
+    });
+  }
+
+  /**
+   * Save servers to storage
+   */
+  async saveServers(servers) {
+    return new Promise((resolve) => {
+      if (typeof chrome !== 'undefined' && chrome.storage) {
+        chrome.storage.local.set({ savedServers: servers }, resolve);
+      } else {
+        localStorage.setItem('savedServers', JSON.stringify(servers));
+        resolve();
+      }
+    });
+  }
+
+  /**
+   * Add or update a server in saved list
+   */
+  async addOrUpdateServer(url, key, name = null) {
+    const servers = await this.getSavedServers();
+    const existing = servers.findIndex(s => s.url === url);
+    const serverName = name || new URL(url).hostname || 'Sunucu';
+
+    if (existing >= 0) {
+      servers[existing] = { ...servers[existing], url, key, name: serverName, updatedAt: Date.now() };
+    } else {
+      servers.push({ id: Date.now().toString(), url, key, name: serverName, createdAt: Date.now(), updatedAt: Date.now() });
     }
+
+    await this.saveServers(servers);
+    this.updateApiInfoDisplay();
+  }
+
+  /**
+   * Remove server from saved list
+   */
+  async removeServer(serverId) {
+    if (!await utils.showConfirm('Bu sunucuyu listeden kaldırmak istiyor musunuz?')) return;
+    const servers = await this.getSavedServers();
+    const filtered = servers.filter(s => s.id !== serverId);
+    await this.saveServers(filtered);
+
+    // If removing active server, clear connection
+    const removed = servers.find(s => s.id === serverId);
+    if (removed && removed.url === api.baseUrl) {
+      this.clearApiSettings();
+    } else {
+      this.updateApiInfoDisplay();
+    }
+  }
+
+  /**
+   * Switch to a different server
+   */
+  async switchServer(serverId) {
+    const servers = await this.getSavedServers();
+    const server = servers.find(s => s.id === serverId);
+    if (!server) return;
+
+    // Stop current streams
+    this.stopGlobalMessageStream();
+    this.stopChatStream();
+
+    // Update API settings
+    await api.saveSettings(server.url, server.key);
+
+    // Test connection
+    try {
+      await this.checkConnection();
+      this.state.apiReady = true;
+      this.updateSidebarLock();
+
+      if (this.state.isConnected) {
+        this.hideConnectionOverlay();
+        this.closeApiModal();
+        this.switchTab('chats');
+        this.updateApiStatusDot('connected');
+        utils.toast(`${server.name} sunucusuna bağlandı`, 'success');
+      } else {
+        this.showConnectionOverlay();
+        this.updateApiStatusDot('connected');
+        utils.toast(`${server.name} API bağlı, WhatsApp bağlantısı bekleniyor`, 'info');
+      }
+    } catch (e) {
+      this.state.apiReady = false;
+      this.updateSidebarLock();
+      this.updateApiStatusDot('error');
+      utils.toast(`${server.name} sunucusuna bağlanılamadı`, 'error');
+    }
+
+    this.updateApiInfoDisplay();
+  }
+
+  /**
+   * Render server list in dashboard
+   */
+  async renderServerList() {
+    const container = document.getElementById('server-list');
+    if (!container) return;
+
+    const servers = await this.getSavedServers();
+    const currentUrl = api.baseUrl;
+
+    // Ensure current active server is in the list
+    if (currentUrl && !servers.find(s => s.url === currentUrl)) {
+      await this.addOrUpdateServer(currentUrl, api.apiKey);
+      return; // addOrUpdateServer calls updateApiInfoDisplay which calls this again
+    }
+
+    if (servers.length === 0) {
+      container.innerHTML = `
+        <div class="server-empty">
+          <i class="fas fa-server"></i>
+          <span>Kayıtlı sunucu yok</span>
+          <button class="btn btn-primary btn-sm" id="empty-add-server"><i class="fas fa-plus"></i> Sunucu Ekle</button>
+        </div>`;
+      document.getElementById('empty-add-server')?.addEventListener('click', () => this.openApiModal());
+      return;
+    }
+
+    container.innerHTML = servers.map(server => {
+      const isActive = server.url === currentUrl;
+      const displayUrl = (() => { try { return new URL(server.url).host; } catch { return server.url; } })();
+      return `
+        <div class="server-item ${isActive ? 'active' : ''}" data-id="${server.id}">
+          <div class="server-item-indicator ${isActive ? 'connected' : ''}"></div>
+          <div class="server-item-info">
+            <span class="server-item-name">${utils.escapeHtml(server.name)}</span>
+            <span class="server-item-url">${utils.escapeHtml(displayUrl)}</span>
+          </div>
+          <div class="server-item-actions">
+            ${!isActive ? `<button class="icon-btn-sm server-switch-btn" data-id="${server.id}" title="Bağlan"><i class="fas fa-plug"></i></button>` : ''}
+            <button class="icon-btn-sm server-edit-btn" data-id="${server.id}" title="Düzenle"><i class="fas fa-pen"></i></button>
+            <button class="icon-btn-sm server-delete-btn" data-id="${server.id}" title="Sil"><i class="fas fa-trash"></i></button>
+          </div>
+        </div>`;
+    }).join('');
+
+    // Event listeners
+    container.querySelectorAll('.server-switch-btn').forEach(btn => {
+      btn.addEventListener('click', (e) => { e.stopPropagation(); this.switchServer(btn.dataset.id); });
+    });
+    container.querySelectorAll('.server-edit-btn').forEach(btn => {
+      btn.addEventListener('click', async (e) => {
+        e.stopPropagation();
+        const servers = await this.getSavedServers();
+        const server = servers.find(s => s.id === btn.dataset.id);
+        if (server) {
+          this.openApiModal('add-server', { url: server.url, key: server.key });
+        }
+      });
+    });
+    container.querySelectorAll('.server-delete-btn').forEach(btn => {
+      btn.addEventListener('click', (e) => { e.stopPropagation(); this.removeServer(btn.dataset.id); });
+    });
+  }
+
+  /**
+   * Render server list in API modal - click to switch directly
+   */
+  async renderModalServerList() {
+    const container = document.getElementById('modal-server-list');
+    if (!container) return;
+
+    const servers = await this.getSavedServers();
+    const currentUrl = api.baseUrl;
+
+    if (servers.length === 0) {
+      container.innerHTML = `
+        <div class="modal-servers-empty">
+          <i class="fas fa-server"></i>
+          <p>Henüz kayıtlı sunucu yok</p>
+          <button class="btn btn-primary btn-sm" id="modal-go-add"><i class="fas fa-plus"></i> Sunucu Ekle</button>
+        </div>`;
+      document.getElementById('modal-go-add')?.addEventListener('click', () => this.switchModalTab('add-server'));
+      return;
+    }
+
+    container.innerHTML = `<div class="modal-servers-label">Kayıtlı Sunucular</div>` + servers.map(server => {
+      const isActive = server.url === currentUrl;
+      const displayUrl = (() => { try { return new URL(server.url).host; } catch { return server.url; } })();
+      return `
+        <div class="modal-server-item ${isActive ? 'active' : ''}" data-id="${server.id}">
+          <div class="modal-server-dot ${isActive ? 'connected' : ''}"></div>
+          <div class="modal-server-info">
+            <span class="modal-server-name">${utils.escapeHtml(server.name)}</span>
+            <span class="modal-server-url">${utils.escapeHtml(displayUrl)}</span>
+          </div>
+          ${isActive ? '<span class="modal-server-active-tag"><i class="fas fa-check"></i> Aktif</span>' : '<span class="modal-server-connect-tag"><i class="fas fa-plug"></i> Bağlan</span>'}
+          <button class="modal-server-delete" data-id="${server.id}" title="Sil"><i class="fas fa-times"></i></button>
+        </div>`;
+    }).join('');
+
+    // Click to switch server (not active ones)
+    container.querySelectorAll('.modal-server-item:not(.active)').forEach(item => {
+      item.addEventListener('click', (e) => {
+        if (e.target.closest('.modal-server-delete')) return;
+        this.switchServer(item.dataset.id);
+      });
+    });
+
+    // Delete button
+    container.querySelectorAll('.modal-server-delete').forEach(btn => {
+      btn.addEventListener('click', (e) => {
+        e.stopPropagation();
+        this.removeServer(btn.dataset.id);
+      });
+    });
   }
 
   /**
@@ -714,20 +1237,64 @@ class WhatsAppBOTApp {
    */
   updateSidebarLock() {
     const canNavigate = this.state.apiReady && this.state.isConnected;
-    document.querySelectorAll('.sidebar-nav-item').forEach(item => {
+    const tabTitles = { 'chats': 'Sohbetler', 'messaging': 'Mesaj Gönderimi', 'dashboard': 'Kontrol Paneli' };
+    document.querySelectorAll('.sidebar-nav-item[data-tab]').forEach(item => {
       const tab = item.dataset.tab;
-      if (tab !== 'dashboard') {
-        if (!canNavigate) {
-          item.classList.add('locked');
-          if (!this.state.apiReady) {
-            item.setAttribute('title', 'Önce API bağlantısını yapılandırın');
-          } else {
-            item.setAttribute('title', 'WhatsApp bağlı değil');
-          }
+      if (!canNavigate) {
+        item.classList.add('locked');
+        if (!this.state.apiReady) {
+          item.setAttribute('title', 'Önce API bağlantısını yapılandırın');
         } else {
-          item.classList.remove('locked');
-          item.setAttribute('title', tab === 'chats' ? 'Sohbetler' : 'Mesaj Gönderimi');
+          item.setAttribute('title', 'WhatsApp bağlı değil');
         }
+      } else {
+        item.classList.remove('locked');
+        item.setAttribute('title', tabTitles[tab] || tab);
+      }
+    });
+  }
+
+  // ==================== THEME ====================
+
+  toggleTheme() {
+    const html = document.documentElement;
+    const current = html.getAttribute('data-theme') || 'dark';
+    const next = current === 'dark' ? 'light' : 'dark';
+    html.setAttribute('data-theme', next);
+
+    // Update icon - show the mode you can switch TO
+    const icon = document.querySelector('#theme-toggle i');
+    if (icon) {
+      icon.className = next === 'dark' ? 'fas fa-sun' : 'fas fa-moon';
+    }
+
+    // Save preference
+    if (typeof chrome !== 'undefined' && chrome.storage) {
+      chrome.storage.local.set({ theme: next });
+    } else {
+      localStorage.setItem('theme', next);
+    }
+  }
+
+  async loadTheme() {
+    return new Promise((resolve) => {
+      if (typeof chrome !== 'undefined' && chrome.storage) {
+        chrome.storage.local.get(['theme'], (result) => {
+          if (result.theme) {
+            document.documentElement.setAttribute('data-theme', result.theme);
+            const icon = document.querySelector('#theme-toggle i');
+            if (icon) icon.className = result.theme === 'dark' ? 'fas fa-sun' : 'fas fa-moon';
+          }
+          resolve();
+        });
+      } else {
+        const theme = localStorage.getItem('theme');
+        if (theme) {
+          document.documentElement.setAttribute('data-theme', theme);
+          const icon = document.querySelector('#theme-toggle i');
+          if (icon) icon.className = theme === 'dark' ? 'fas fa-sun' : 'fas fa-moon';
+        }
+        resolve();
       }
     });
   }
@@ -765,10 +1332,26 @@ class WhatsAppBOTApp {
         document.getElementById('server-notify').checked = data.notify || false;
         document.getElementById('server-call-reject').checked = data.callReject?.enabled || false;
 
+        // Load CORS White List
+        this.state.corsWhiteList = data.corsWhiteList || [];
+        this.renderCorsTags();
+
+        // Load cache clear interval
+        const cacheIntervalSelect = document.getElementById('server-cache-clear-interval');
+        if (cacheIntervalSelect) {
+          cacheIntervalSelect.value = String(data.cacheClearInterval || 0);
+        }
+
         // Show server time
         const timeEl = document.getElementById('server-time');
         if (timeEl && data.time) {
-          timeEl.textContent = data.time.formatted || data.time.iso || '-';
+          timeEl.textContent = data.time.localTime || data.time.currentTime || '-';
+        } else if (timeEl) {
+          // If no time in response, show local time as fallback
+          const tz = data.timezone || 'Europe/Istanbul';
+          try {
+            timeEl.textContent = new Date().toLocaleString('tr-TR', { timeZone: tz });
+          } catch { timeEl.textContent = new Date().toLocaleString('tr-TR'); }
         }
 
         utils.hide(loadingEl);
@@ -795,7 +1378,9 @@ class WhatsAppBOTApp {
         notify: document.getElementById('server-notify').checked,
         callReject: {
           enabled: document.getElementById('server-call-reject').checked
-        }
+        },
+        corsWhiteList: this.state.corsWhiteList || [],
+        cacheClearInterval: parseInt(document.getElementById('server-cache-clear-interval')?.value || '0', 10)
       };
 
       const response = await api.updateAppSettings(settings);
@@ -813,6 +1398,218 @@ class WhatsAppBOTApp {
     } finally {
       utils.setLoading('save-server-settings', false);
     }
+  }
+
+  async clearCurrentChatCache() {
+    if (!this.state.currentChatJid) return;
+
+    if (!await utils.showConfirm('Bu sohbetin önbelleğini temizlemek istediğinize emin misiniz?')) return;
+
+    try {
+      const response = await api.clearChatCache(this.state.currentChatJid);
+      if (response.success) {
+        utils.toast(`Sohbet önbelleği temizlendi (${response.data?.clearedMessages || 0} mesaj)`, 'success');
+        // Close the chat view and go back to chat list
+        this.closeChat();
+        // Reload chats list to reflect changes
+        await this.loadChats();
+      } else {
+        throw new Error(response.message || 'Önbellek temizlenemedi');
+      }
+    } catch (error) {
+      console.error('Clear chat cache error:', error);
+      utils.toast('Önbellek temizlenemedi: ' + error.message, 'error');
+    }
+  }
+
+  async clearAllCachesAction() {
+    if (!await utils.showConfirm('Tüm sohbet önbelleğini temizlemek istediğinize emin misiniz?\nBu işlem geri alınamaz.')) return;
+
+    try {
+      utils.setLoading('clear-all-cache-btn', true, 'Temizleniyor...');
+      const response = await api.clearAllCaches();
+      if (response.success) {
+        const data = response.data || {};
+        utils.toast(`Tüm önbellek temizlendi (${data.clearedChats || 0} sohbet, ${data.clearedMessages || 0} mesaj)`, 'success');
+        // Reload chats list
+        await this.loadChats();
+      } else {
+        throw new Error(response.message || 'Önbellek temizlenemedi');
+      }
+    } catch (error) {
+      console.error('Clear all caches error:', error);
+      utils.toast('Önbellek temizlenemedi: ' + error.message, 'error');
+    } finally {
+      utils.setLoading('clear-all-cache-btn', false);
+    }
+  }
+
+  // ==================== TERMINAL LOG POPUP ====================
+
+  openTerminalPopup() {
+    const popup = document.getElementById('terminal-popup');
+    const status = document.getElementById('terminal-status');
+    const output = document.getElementById('terminal-output');
+
+    if (!popup) return;
+
+    // Show popup
+    popup.classList.remove('hidden');
+
+    // Reset state
+    status.className = 'terminal-popup-status';
+    status.innerHTML = '<span class="terminal-status-dot"></span><span>Bağlanıyor...</span>';
+    output.innerHTML = '<div class="terminal-empty"><i class="fas fa-terminal"></i><span>Log akışı başlatılıyor...</span></div>';
+
+    // Auto-scroll flag
+    this._terminalAutoScroll = true;
+
+    // Track scroll to determine auto-scroll behavior
+    output.addEventListener('scroll', () => {
+      const atBottom = output.scrollHeight - output.scrollTop - output.clientHeight < 40;
+      this._terminalAutoScroll = atBottom;
+    });
+
+    // Start SSE stream
+    api.startTerminalStream(
+      // onLog
+      (logEntry) => {
+        this.appendTerminalLog(logEntry);
+      },
+      // onOpen
+      () => {
+        status.className = 'terminal-popup-status connected';
+        status.innerHTML = '<span class="terminal-status-dot"></span><span>Bağlı — Canlı log akışı</span>';
+        // Clear empty state
+        const empty = output.querySelector('.terminal-empty');
+        if (empty) empty.remove();
+      },
+      // onError
+      (error) => {
+        console.error('Terminal stream error:', error);
+        status.className = 'terminal-popup-status error';
+        status.innerHTML = '<span class="terminal-status-dot"></span><span>Bağlantı kesildi</span>';
+      }
+    );
+  }
+
+  closeTerminalPopup() {
+    const popup = document.getElementById('terminal-popup');
+    if (popup) popup.classList.add('hidden');
+
+    // Stop SSE stream
+    api.stopTerminalStream();
+  }
+
+  clearTerminalOutput() {
+    const output = document.getElementById('terminal-output');
+    if (output) {
+      output.innerHTML = '<div class="terminal-empty"><i class="fas fa-terminal"></i><span>Log temizlendi</span></div>';
+    }
+  }
+
+  appendTerminalLog(entry) {
+    const output = document.getElementById('terminal-output');
+    if (!output) return;
+
+    // Remove empty state if exists
+    const empty = output.querySelector('.terminal-empty');
+    if (empty) empty.remove();
+
+    const line = document.createElement('div');
+    line.className = 'terminal-line';
+
+    const time = entry.timestamp
+      ? new Date(entry.timestamp).toLocaleTimeString('tr-TR', { hour: '2-digit', minute: '2-digit', second: '2-digit' })
+      : '';
+
+    const level = entry.level || 'info';
+    const category = entry.category || 'system';
+    const message = entry.message || '';
+    const hasData = entry.data && Object.keys(entry.data).length > 0;
+
+    line.innerHTML = `
+      <span class="terminal-time">${utils.escapeHtml(time)}</span>
+      <span class="terminal-level ${level}">${level}</span>
+      <span class="terminal-category">${utils.escapeHtml(category)}</span>
+      <span class="terminal-msg">${utils.escapeHtml(message)}</span>
+      ${hasData ? `<span class="terminal-data" title="${utils.escapeHtml(JSON.stringify(entry.data))}"><i class="fas fa-ellipsis-h"></i></span>` : ''}
+    `;
+
+    // Data tooltip on click
+    if (hasData) {
+      const dataBtn = line.querySelector('.terminal-data');
+      dataBtn?.addEventListener('click', () => {
+        const formatted = JSON.stringify(entry.data, null, 2);
+        const pre = document.createElement('div');
+        pre.style.cssText = 'padding:4px 8px;margin:2px 0 4px 100px;background:var(--bg-input);border-radius:4px;font-size:10px;color:var(--text-secondary);white-space:pre-wrap;word-break:break-all;border:1px solid var(--border)';
+        pre.textContent = formatted;
+        // Toggle
+        if (line.nextElementSibling?.dataset?.dataExpanded) {
+          line.nextElementSibling.remove();
+        } else {
+          pre.dataset.dataExpanded = 'true';
+          line.after(pre);
+        }
+      });
+    }
+
+    output.appendChild(line);
+
+    // Keep max 500 lines
+    while (output.children.length > 500) {
+      output.removeChild(output.firstChild);
+    }
+
+    // Auto scroll if at bottom
+    if (this._terminalAutoScroll) {
+      output.scrollTop = output.scrollHeight;
+    }
+  }
+
+  async fetchClientIp() {
+    try {
+      const res = await fetch('https://api.ipify.org?format=json');
+      const data = await res.json();
+      this.state.clientIp = data.ip;
+    } catch { this.state.clientIp = null; }
+  }
+
+  renderCorsTags() {
+    const container = document.getElementById('cors-tags');
+    if (!container) return;
+    const list = this.state.corsWhiteList || [];
+    const clientIp = this.state.clientIp;
+
+    container.innerHTML = list.map(ip => {
+      const isSelf = clientIp && (ip === clientIp || ip === '::1' || ip === '127.0.0.1');
+      return `<span class="cors-tag${isSelf ? ' self' : ''}" data-ip="${utils.escapeHtml(ip)}">
+        ${utils.escapeHtml(ip)}${isSelf ? ' <i class="fas fa-user" title="Senin IP"></i>' : ''}
+        <button class="cors-tag-remove" data-ip="${utils.escapeHtml(ip)}"${isSelf ? ' disabled title="Kendi IP adresinizi silemezsiniz"' : ' title="Kaldır"'}><i class="fas fa-times"></i></button>
+      </span>`;
+    }).join('');
+
+    container.querySelectorAll('.cors-tag-remove:not([disabled])').forEach(btn => {
+      btn.addEventListener('click', (e) => {
+        e.preventDefault();
+        const ip = btn.dataset.ip;
+        this.state.corsWhiteList = this.state.corsWhiteList.filter(i => i !== ip);
+        this.renderCorsTags();
+      });
+    });
+  }
+
+  addCorsTag() {
+    const input = document.getElementById('cors-new-ip');
+    const val = input?.value.trim();
+    if (!val) return;
+    if (this.state.corsWhiteList.includes(val)) {
+      utils.toast('Bu IP zaten listede', 'warning');
+      return;
+    }
+    this.state.corsWhiteList.push(val);
+    this.renderCorsTags();
+    input.value = '';
   }
 
   toggleApiKeyVisibility() {
@@ -841,7 +1638,14 @@ class WhatsAppBOTApp {
     try {
       utils.setLoading('save-settings', true);
       await api.saveSettings(url, key);
+
+      // Save to multi-server list
+      await this.addOrUpdateServer(url, key);
+
       utils.toast('API ayarları kaydedildi', 'success');
+
+      // Clear add-server form
+      this.clearAddServerForm();
 
       // API bağlantısını test et
       try {
@@ -849,20 +1653,21 @@ class WhatsAppBOTApp {
         this.state.apiReady = true;
         this.updateSidebarLock();
 
-        // API ayarları alanını kapat
-        const body = document.getElementById('qr-api-body');
-        const chevron = document.getElementById('qr-api-chevron');
-        if (body) body.classList.add('hidden');
-        if (chevron) chevron.classList.remove('open');
-
-        // Bağlıysa sohbetlere geç
         if (this.state.isConnected) {
+          this.closeApiModal();
+          this.hideConnectionOverlay();
           this.switchTab('chats');
+          this.updateApiStatusDot('connected');
+        } else {
+          this.closeApiModal();
+          this.showConnectionOverlay();
+          this.updateApiStatusDot('connected');
         }
       } catch (e) {
         // API bağlantısı yok ama ayarlar kaydedildi
         this.state.apiReady = false;
         this.updateSidebarLock();
+        this.updateApiStatusDot('error');
       }
     } catch (error) {
       utils.toast(error.message, 'error');
@@ -879,11 +1684,14 @@ class WhatsAppBOTApp {
       if (response.success) {
         this.state.apiReady = true;
         this.updateSidebarLock();
+        this.updateApiStatusDot('connected');
         utils.toast('Bağlantı başarılı!', 'success');
       } else {
+        this.updateApiStatusDot('error');
         utils.toast('Bağlantı başarısız', 'error');
       }
     } catch (error) {
+      this.updateApiStatusDot('error');
       utils.toast('Bağlantı hatası: ' + error.message, 'error');
     } finally {
       utils.setLoading('test-connection', false);
@@ -895,7 +1703,8 @@ class WhatsAppBOTApp {
   async loadDashboardData() {
     await Promise.all([
       this.loadStats(),
-      this.loadQuickStats()
+      this.loadQuickStats(),
+      this.loadServerSettings()
     ]);
   }
 
@@ -912,14 +1721,15 @@ class WhatsAppBOTApp {
 
         const memUsage = data.system?.memory?.usagePercent || 0;
         const sysMem = document.getElementById('sys-memory');
-        const sysMemBar = document.getElementById('sys-memory-bar');
+        const memRing = document.getElementById('mem-ring');
         if (sysMem) sysMem.textContent = `${memUsage.toFixed(1)}%`;
-        if (sysMemBar) sysMemBar.style.width = `${memUsage}%`;
+        if (memRing) memRing.setAttribute('stroke-dasharray', `${memUsage}, 100`);
 
         const healthEl = document.getElementById('sys-health');
         if (healthEl) {
           const healthStatus = data.health?.status || 'unknown';
-          healthEl.textContent = healthStatus;
+          const healthLabels = { healthy: 'Sağlıklı', degraded: 'Düşük', unhealthy: 'Sorunlu', unknown: 'Bilinmiyor' };
+          healthEl.textContent = healthLabels[healthStatus] || healthStatus;
           healthEl.className = `system-health-badge ${healthStatus}`;
         }
 
@@ -938,18 +1748,26 @@ class WhatsAppBOTApp {
         const waQueuePending = document.getElementById('wa-queue-pending');
 
         if (waConnectionTime) {
-          const connectionUptime = data.whatsapp?.connectionUptime;
-          waConnectionTime.textContent = connectionUptime ? utils.formatUptime(connectionUptime) : '-';
+          if (data.whatsapp?.lastConnected) {
+            const lastConnected = new Date(data.whatsapp.lastConnected);
+            const now = new Date();
+            const diffMs = now - lastConnected;
+            waConnectionTime.textContent = utils.formatUptime(Math.floor(diffMs / 1000));
+          } else if (data.whatsapp?.isConnected) {
+            waConnectionTime.textContent = 'Aktif';
+          } else {
+            waConnectionTime.textContent = 'Bağlı değil';
+          }
         }
 
         if (waSentToday) {
-          const sent = data.queue?.completedJobs || data.messages?.sentToday || 0;
-          waSentToday.textContent = sent;
+          const totalMessages = data.messages?.totalMessages || 0;
+          waSentToday.textContent = `${totalMessages} mesaj`;
         }
 
         if (waQueuePending) {
-          const pending = data.queue?.pendingJobs || 0;
-          waQueuePending.textContent = pending;
+          const pending = data.queue?.totalPendingMessages || 0;
+          waQueuePending.textContent = `${pending} mesaj`;
         }
       }
     } catch (error) {
@@ -970,23 +1788,6 @@ class WhatsAppBOTApp {
     }
   }
 
-  handleQuickAction(action) {
-    switch (action) {
-      case 'new-chat':
-        this.switchTab('chats');
-        setTimeout(() => this.showNewChatPanel(), 100);
-        break;
-      case 'send-message':
-        this.switchTab('messaging');
-        document.getElementById('single-recipient')?.focus();
-        break;
-      case 'bulk-send':
-        this.switchTab('messaging');
-        this.switchMessageType('bulk');
-        break;
-    }
-  }
-
   // ==================== CHATS ====================
 
   async loadChats(search = null) {
@@ -997,8 +1798,7 @@ class WhatsAppBOTApp {
       const filters = {
         limit: 50,
         search: searchText || undefined,
-        unread: filter === 'unread' ? true : undefined,
-        archived: filter === 'archived' ? true : undefined
+        unread: filter === 'unread' ? true : undefined
       };
 
       const response = await api.getChats(filters);
@@ -1012,22 +1812,18 @@ class WhatsAppBOTApp {
           item.addEventListener('click', () => this.openChat(item.dataset.jid));
         });
 
-        // Update unread count badge
-        const unreadCount = response.data.chats.reduce((sum, c) => sum + (c.unreadCount || 0), 0);
-        const badge = document.getElementById('unread-count');
-        if (unreadCount > 0) {
-          badge.textContent = unreadCount;
-          badge.classList.remove('hidden');
-        } else {
-          badge.classList.add('hidden');
-        }
+        // Sync unread chats from API data - count chats with unread, not total messages
+        response.data.chats.forEach(c => {
+          if (c.unreadCount > 0) {
+            this.state.unreadChats.add(c.jid);
+          }
+        });
+        this.updateUnreadBadge();
       } else {
         container.innerHTML = `
           <div class="chats-empty">
             <i class="fas fa-comments"></i>
-            <p>${filter === 'unread' ? 'Okunmamış mesaj yok' :
-          filter === 'archived' ? 'Arşivlenmiş sohbet yok' :
-            'Sohbet bulunamadı'}</p>
+            <p>${filter === 'unread' ? 'Okunmamış mesaj yok' : 'Sohbet bulunamadı'}</p>
           </div>
         `;
       }
@@ -1272,17 +2068,70 @@ class WhatsAppBOTApp {
             html += `<div class="message-date-divider"><span>${this.getDateLabel(msg.timestamp)}</span></div>`;
           }
 
-          html += `
-            <div class="message-bubble ${isOutgoing ? 'outgoing' : 'incoming'}" data-msg-id="${msg.id || ''}">
-              <div class="message-text">${utils.escapeHtml(content)}</div>
-              <div class="message-meta">
-                <span class="message-time">${time}</span>
-                ${isOutgoing ? `<span class="message-status ${msg.status === 'read' ? 'read' : ''}">
-                  <i class="fas fa-check-double"></i>
-                </span>` : ''}
+          // Mesaj tipini kontrol et - medya mesajları için özel render
+          const msgType = msg.type || 'text';
+          const isMedia = ['image', 'video', 'audio', 'document', 'sticker', 'ptt', 'location', 'liveLocation', 'vcard', 'contact', 'poll', 'event'].includes(msgType);
+          // Text tipinde olup [IMAGE] gibi placeholder içeren mesajları da medya olarak algıla
+          const mediaTagMatch = !isMedia && content.match(/^\[(?:Image|File|Video|Audio|Document|Sticker|Ptt|Media|Location|Live Location|Contact|Poll|Event|IMAGE|FILE|VIDEO|AUDIO|DOCUMENT|STICKER|PTT|MEDIA|LOCATION|CONTACT|POLL|EVENT|\d+\s*Contact)\]$/i);
+          const treatAsMedia = isMedia || !!mediaTagMatch;
+
+          // Boş text mesajlarını atla (bilinmeyen mesaj tipleri olabilir)
+          if (!treatAsMedia && !content.trim()) {
+            return;
+          }
+
+          if (treatAsMedia) {
+            let effectiveType = msgType;
+            if (mediaTagMatch) {
+              const tagMap = { 'IMAGE': 'image', 'FILE': 'document', 'VIDEO': 'video', 'AUDIO': 'audio', 'DOCUMENT': 'document', 'STICKER': 'sticker', 'PTT': 'ptt', 'MEDIA': 'image', 'LOCATION': 'location', 'LIVE LOCATION': 'liveLocation', 'CONTACT': 'vcard', 'POLL': 'poll', 'EVENT': 'event' };
+              effectiveType = tagMap[mediaTagMatch[1].toUpperCase()] || 'image';
+            }
+            const mediaLabels = {
+              'image': { icon: 'fa-image', label: 'Fotoğraf' },
+              'video': { icon: 'fa-video', label: 'Video' },
+              'audio': { icon: 'fa-headphones', label: 'Ses Mesajı' },
+              'ptt': { icon: 'fa-microphone', label: 'Sesli Mesaj' },
+              'document': { icon: 'fa-file-alt', label: 'Belge' },
+              'sticker': { icon: 'fa-sticky-note', label: 'Çıkartma' },
+              'location': { icon: 'fa-map-marker-alt', label: 'Konum' },
+              'liveLocation': { icon: 'fa-street-view', label: 'Canlı Konum' },
+              'vcard': { icon: 'fa-address-card', label: 'Kişi' },
+              'contact': { icon: 'fa-address-card', label: 'Kişi' },
+              'poll': { icon: 'fa-poll', label: 'Anket' },
+              'event': { icon: 'fa-calendar-check', label: 'Etkinlik' }
+            };
+            const media = mediaLabels[effectiveType] || { icon: 'fa-file', label: 'Dosya' };
+
+            html += `
+              <div class="message-bubble ${isOutgoing ? 'outgoing' : 'incoming'}" data-msg-id="${msg.id || ''}">
+                <div class="media-placeholder">
+                  <div class="media-placeholder-icon"><i class="fas ${media.icon}"></i></div>
+                  <div class="media-placeholder-info">
+                    <span class="media-placeholder-label">${media.label}</span>
+                    <span class="media-placeholder-hint"><i class="fas fa-lock"></i> Daha fazla gizlilik için bu mesajı yalnızca telefonunuzdan açabilirsiniz.</span>
+                  </div>
+                </div>
+                <div class="message-meta">
+                  <span class="message-time">${time}</span>
+                  ${isOutgoing ? `<span class="message-status ${msg.status === 'read' ? 'read' : ''}">
+                    <i class="fas fa-check-double"></i>
+                  </span>` : ''}
+                </div>
               </div>
-            </div>
-          `;
+            `;
+          } else {
+            html += `
+              <div class="message-bubble ${isOutgoing ? 'outgoing' : 'incoming'}" data-msg-id="${msg.id || ''}">
+                <div class="message-text">${utils.escapeHtml(content)}</div>
+                <div class="message-meta">
+                  <span class="message-time">${time}</span>
+                  ${isOutgoing ? `<span class="message-status ${msg.status === 'read' ? 'read' : ''}">
+                    <i class="fas fa-check-double"></i>
+                  </span>` : ''}
+                </div>
+              </div>
+            `;
+          }
         });
 
         messagesContainer.innerHTML = html;
@@ -1433,6 +2282,9 @@ class WhatsAppBOTApp {
       input.value = '';
       input.style.height = 'auto';
 
+      // Send typing indicator if enabled
+      await this.sendTypingIfEnabled(jid);
+
       const response = await api.sendMessage(jid, message);
 
       if (response.success) {
@@ -1529,10 +2381,34 @@ class WhatsAppBOTApp {
     utils.toggle('bulk-message-form', type === 'bulk');
   }
 
+  /**
+   * Send typing indicator if typing duration is enabled in addon settings
+   */
+  async sendTypingIfEnabled(jid) {
+    try {
+      const getTypingDuration = () => new Promise(resolve => {
+        if (typeof chrome !== 'undefined' && chrome.storage) {
+          chrome.storage.local.get(['typingDuration'], (result) => resolve(result.typingDuration || 0));
+        } else {
+          resolve(0);
+        }
+      });
+      const duration = await getTypingDuration();
+      if (duration > 0) {
+        await api.sendTyping(jid, 'composing');
+        await new Promise(r => setTimeout(r, duration));
+        await api.sendTyping(jid, 'paused');
+      }
+    } catch (e) {
+      // Typing indicator is non-critical, silently fail
+      console.debug('Typing indicator failed:', e);
+    }
+  }
+
   setScheduleMode(mode) {
     this.state.singleScheduleMode = mode;
 
-    document.querySelectorAll('.schedule-option').forEach(opt => {
+    document.querySelectorAll('.schedule-option[data-schedule]').forEach(opt => {
       opt.classList.toggle('active', opt.dataset.schedule === mode);
     });
 
@@ -1649,19 +2525,22 @@ class WhatsAppBOTApp {
           document.getElementById('single-recipient').value = '';
           document.getElementById('single-message').value = '';
           document.getElementById('single-datetime').value = '';
+          const sc1 = document.getElementById('single-char-count'); if (sc1) sc1.textContent = '0';
           this.setScheduleMode('now');
           this.loadScheduledMessages();
         } else {
           throw new Error(response.message || 'Mesaj zamanlanamadı');
         }
       } else {
-        // Send immediately
+        // Send immediately - typing indicator
+        await this.sendTypingIfEnabled(jid);
         const response = await api.sendMessage(jid, message, type, { mediaUrl, caption });
 
         if (response.success) {
           utils.toast('Mesaj gönderildi!', 'success');
           document.getElementById('single-recipient').value = '';
           document.getElementById('single-message').value = '';
+          const sc2 = document.getElementById('single-char-count'); if (sc2) sc2.textContent = '0';
         } else {
           throw new Error(response.message || 'Mesaj gönderilemedi');
         }
@@ -1696,8 +2575,13 @@ class WhatsAppBOTApp {
   }
 
   updateRecipientCount(text) {
-    const recipients = utils.parseRecipients(text);
-    document.getElementById('recipient-count').textContent = recipients.length;
+    // Boş olmayan satır sayısını hesapla
+    const lines = text.split(/\n/).filter(line => line.trim().length > 0);
+    document.getElementById('recipient-count').textContent = lines.length;
+  }
+
+  updateBulkCharCount(text) {
+    document.getElementById('bulk-char-count').textContent = text.length;
   }
 
   async handleBulkSend() {
@@ -1793,12 +2677,23 @@ class WhatsAppBOTApp {
         document.getElementById('bulk-recipients').value = '';
         document.getElementById('bulk-message').value = '';
         document.getElementById('recipient-count').textContent = '0';
-        // Reset schedule checkbox
+        document.getElementById('bulk-char-count').textContent = '0';
+        // Reset schedule toggle buttons
         const scheduleCheckbox = document.getElementById('bulk-schedule-enabled');
         if (scheduleCheckbox) {
           scheduleCheckbox.checked = false;
           utils.hide('bulk-schedule-datetime');
         }
+        document.querySelectorAll('.schedule-option[data-bulk-schedule]').forEach(o => o.classList.remove('active'));
+        document.querySelector('.schedule-option[data-bulk-schedule="now"]')?.classList.add('active');
+        // Reset time window toggle buttons
+        const twCheckbox = document.getElementById('bulk-time-window');
+        if (twCheckbox) {
+          twCheckbox.checked = false;
+          utils.hide('time-window-group');
+        }
+        document.querySelectorAll('.schedule-option[data-time-window]').forEach(o => o.classList.remove('active'));
+        document.querySelector('.schedule-option[data-time-window="off"]')?.classList.add('active');
         await this.loadBulkJobs();
       }
     } catch (error) {
@@ -1879,7 +2774,7 @@ class WhatsAppBOTApp {
             <span><i class="fas fa-users"></i> Toplam: ${job.total} alıcı</span>
             <span><i class="fas fa-calendar"></i> ${createdAt}</span>
           </div>
-          ${job.type !== 'text' ? `<div class="job-detail-row"><span><i class="fas fa-file"></i> Tip: ${job.type}</span></div>` : ''}
+          ${job.type && job.type !== 'text' ? `<div class="job-detail-row"><span><i class="fas fa-file"></i> Tip: ${job.type}</span></div>` : ''}
           ${job.timeWindow ? `<div class="job-detail-row"><span><i class="fas fa-clock"></i> Zaman: ${job.timeWindow.startTime} - ${job.timeWindow.endTime}</span></div>` : ''}
         </div>
         <div class="job-actions">
@@ -1905,13 +2800,13 @@ class WhatsAppBOTApp {
           utils.toast('İş devam ediyor', 'success');
           break;
         case 'cancel':
-          if (confirm('İşi iptal etmek istediğinize emin misiniz?')) {
+          if (await utils.showConfirm('İşi iptal etmek istediğinize emin misiniz?')) {
             await api.cancelBulkJob(jobId);
             utils.toast('İş iptal edildi', 'success');
           }
           break;
         case 'delete':
-          if (confirm('İşi silmek istediğinize emin misiniz?')) {
+          if (await utils.showConfirm('İşi silmek istediğinize emin misiniz?')) {
             await api.deleteBulkJob(jobId);
             utils.toast('İş silindi', 'success');
           }
@@ -2168,7 +3063,7 @@ class WhatsAppBOTApp {
   }
 
   async cancelScheduledMessage(id) {
-    if (!confirm('Zamanlı mesajı iptal etmek istiyor musunuz?')) return;
+    if (!await utils.showConfirm('Zamanlı mesajı iptal etmek istiyor musunuz?')) return;
 
     try {
       await api.cancelScheduledMessage(id);
@@ -2180,12 +3075,24 @@ class WhatsAppBOTApp {
   }
 
   async clearCompletedScheduled() {
-    if (!confirm('Tamamlanan mesajları silmek istiyor musunuz?')) return;
+    if (!await utils.showConfirm('Tamamlanan zamanlı mesajları silmek istiyor musunuz?')) return;
 
     try {
       await api.clearCompletedScheduled();
-      utils.toast('Temizlendi', 'success');
+      utils.toast('Zamanlı mesajlar temizlendi', 'success');
       await this.loadScheduledMessages();
+    } catch (error) {
+      utils.toast(error.message, 'error');
+    }
+  }
+
+  async clearCompletedBulk() {
+    if (!await utils.showConfirm('Tamamlanan toplu gönderileri silmek istiyor musunuz?')) return;
+
+    try {
+      await api.clearCompletedBulkJobs();
+      utils.toast('Toplu gönderimler temizlendi', 'success');
+      await this.loadBulkJobs();
     } catch (error) {
       utils.toast(error.message, 'error');
     }
@@ -2226,15 +3133,12 @@ class WhatsAppBOTApp {
     try {
       // Bağlı görünüyorsa ama SSE aktif değilse, yeniden başlat
       if (this.state.isConnected && !api.isMessageStreamActive()) {
-        console.log('SSE stream inactive but state says connected, verifying...');
-
+        console.log('SSE stream inactive but state says connected, restarting immediately...');
+        this.startGlobalMessageStream();
+        // Aynı zamanda API'den doğrula
         const response = await api.getStatus();
         if (response.success && response.data) {
-          if (response.data.isConnected) {
-            // Gerçekten bağlı, SSE'yi yeniden başlat
-            console.log('Restarting SSE stream...');
-            this.startGlobalMessageStream();
-          } else {
+          if (!response.data.isConnected) {
             // Bağlantı kopmuş
             console.log('Connection lost detected in health check');
             this.state.isConnected = false;
@@ -2246,6 +3150,7 @@ class WhatsAppBOTApp {
             }
 
             this.updateConnectionUI();
+            this.stopGlobalMessageStream();
             utils.toast('WhatsApp bağlantısı kesildi', 'warning');
           }
         }
@@ -2333,8 +3238,10 @@ class WhatsAppBOTApp {
         const msgFrom = (message.from || '').split('@')[0].split(':')[0];
         const currentChat = (this.state.currentChatJid || '').split('@')[0].split(':')[0];
 
-        // If the message is not for the current open chat, mark as unread
-        if (msgFrom !== currentChat || !currentChat) {
+        // Only consider chat "open" if we're on chats tab AND viewing that specific chat
+        const isChatOpen = this.state.currentTab === 'chats' && currentChat && msgFrom === currentChat;
+
+        if (!isChatOpen) {
           this.state.unreadChats.add(message.from);
           this.updateUnreadBadge();
 
@@ -2592,13 +3499,65 @@ class WhatsAppBOTApp {
     if (messageId) msgDiv.setAttribute('data-msg-id', messageId);
     msgDiv.setAttribute('data-timestamp', String(timestamp));
 
-    msgDiv.innerHTML = `
-      <div class="message-text">${utils.escapeHtml(content)}</div>
-      <div class="message-meta">
-        <span class="message-time">${time}</span>
-        ${isOutgoing ? `<span class="message-status"><i class="fas fa-check"></i></span>` : ''}
-      </div>
-    `;
+    // Medya tipi kontrolü
+    const msgType = message.type || 'text';
+    let isMedia = ['image', 'video', 'audio', 'document', 'sticker', 'ptt', 'location', 'liveLocation', 'vcard', 'contact', 'poll', 'event'].includes(msgType);
+
+    // Text tipinde olup [IMAGE] gibi placeholder içeren mesajları da medya olarak algıla
+    let effectiveMediaType = msgType;
+    if (!isMedia && content) {
+      const mediaTagMatch = content.match(/^\[(?:Image|File|Video|Audio|Document|Sticker|Ptt|Media|Location|Live Location|Contact|Poll|Event|\d+\s*Contact)\]$/i);
+      if (mediaTagMatch) {
+        isMedia = true;
+        const tagMap = { 'IMAGE': 'image', 'FILE': 'document', 'VIDEO': 'video', 'AUDIO': 'audio', 'DOCUMENT': 'document', 'STICKER': 'sticker', 'PTT': 'ptt', 'MEDIA': 'image', 'LOCATION': 'location', 'LIVE LOCATION': 'liveLocation', 'CONTACT': 'vcard', 'POLL': 'poll', 'EVENT': 'event' };
+        effectiveMediaType = tagMap[mediaTagMatch[1].toUpperCase()] || 'image';
+      }
+    }
+
+    // Boş text mesajlarını atla
+    if (!isMedia && !content.trim()) {
+      return;
+    }
+
+    if (isMedia) {
+      const mediaLabels = {
+        'image': { icon: 'fa-image', label: 'Fotoğraf' },
+        'video': { icon: 'fa-video', label: 'Video' },
+        'audio': { icon: 'fa-headphones', label: 'Ses Mesajı' },
+        'ptt': { icon: 'fa-microphone', label: 'Sesli Mesaj' },
+        'document': { icon: 'fa-file-alt', label: 'Belge' },
+        'sticker': { icon: 'fa-sticky-note', label: 'Çıkartma' },
+        'location': { icon: 'fa-map-marker-alt', label: 'Konum' },
+        'liveLocation': { icon: 'fa-street-view', label: 'Canlı Konum' },
+        'vcard': { icon: 'fa-address-card', label: 'Kişi' },
+        'contact': { icon: 'fa-address-card', label: 'Kişi' },
+        'poll': { icon: 'fa-poll', label: 'Anket' },
+        'event': { icon: 'fa-calendar-check', label: 'Etkinlik' }
+      };
+      const media = mediaLabels[effectiveMediaType] || mediaLabels[msgType] || { icon: 'fa-file', label: 'Dosya' };
+
+      msgDiv.innerHTML = `
+        <div class="media-placeholder">
+          <div class="media-placeholder-icon"><i class="fas ${media.icon}"></i></div>
+          <div class="media-placeholder-info">
+            <span class="media-placeholder-label">${media.label}</span>
+            <span class="media-placeholder-hint"><i class="fas fa-lock"></i> Daha fazla gizlilik için bu mesajı yalnızca telefonunuzdan açabilirsiniz.</span>
+          </div>
+        </div>
+        <div class="message-meta">
+          <span class="message-time">${time}</span>
+          ${isOutgoing ? `<span class="message-status"><i class="fas fa-check"></i></span>` : ''}
+        </div>
+      `;
+    } else {
+      msgDiv.innerHTML = `
+        <div class="message-text">${utils.escapeHtml(content)}</div>
+        <div class="message-meta">
+          <span class="message-time">${time}</span>
+          ${isOutgoing ? `<span class="message-status"><i class="fas fa-check"></i></span>` : ''}
+        </div>
+      `;
+    }
 
     messagesContainer.appendChild(msgDiv);
     messagesContainer.scrollTop = messagesContainer.scrollHeight;

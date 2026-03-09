@@ -51,10 +51,14 @@ const utils = {
     if (type === 'warning') icon = 'fa-exclamation-triangle';
 
     toast.innerHTML = `<i class="fas ${icon}"></i> ${this.escapeHtml(message)}`;
+    // Set progress bar duration dynamically
+    toast.style.setProperty('--toast-duration', duration + 'ms');
     container.appendChild(toast);
 
     setTimeout(() => {
-      toast.style.animation = 'slideIn 0.3s ease reverse';
+      toast.style.opacity = '0';
+      toast.style.transform = 'translateY(-10px)';
+      toast.style.transition = 'all 0.3s ease';
       setTimeout(() => toast.remove(), 300);
     }, duration);
   },
@@ -293,8 +297,14 @@ const utils = {
     if (type === 'image') return '📷 Fotoğraf';
     if (type === 'video') return '📹 Video';
     if (type === 'audio') return '🎵 Ses';
+    if (type === 'ptt') return '🎤 Sesli Mesaj';
     if (type === 'document') return '📄 Belge';
     if (type === 'sticker') return '🎨 Çıkartma';
+    if (type === 'location') return '📍 Konum';
+    if (type === 'liveLocation') return '📡 Canlı Konum';
+    if (type === 'vcard' || type === 'contact') return '👤 Kişi';
+    if (type === 'poll') return '📊 Anket';
+    if (type === 'event') return '📅 Etkinlik';
 
     return utils.truncate(message.content || message.message || '', 40);
   },
@@ -352,6 +362,46 @@ const utils = {
   },
 
   /**
+   * Initialize responsive tooltip positioning
+   * Tooltips use position:fixed and are positioned via JS to stay within viewport
+   */
+  initTooltips() {
+    document.addEventListener('mouseover', (e) => {
+      const tooltip = e.target.closest('.info-tooltip');
+      if (!tooltip) return;
+
+      const rect = tooltip.getBoundingClientRect();
+      const tooltipWidth = 200;
+      const tooltipPad = 10;
+      const viewW = document.documentElement.clientWidth || 720;
+      const viewH = document.documentElement.clientHeight || 580;
+
+      // Calculate left: prefer aligning to icon, but clamp to viewport
+      let left = rect.left;
+      if (left + tooltipWidth > viewW - tooltipPad) {
+        left = viewW - tooltipWidth - tooltipPad;
+      }
+      if (left < tooltipPad) {
+        left = tooltipPad;
+      }
+
+      // Calculate top: prefer below icon, if no room then above
+      let top = rect.bottom + 6;
+      // Approximate tooltip height
+      const approxHeight = 60;
+      if (top + approxHeight > viewH - tooltipPad) {
+        top = rect.top - approxHeight - 6;
+      }
+      if (top < tooltipPad) {
+        top = tooltipPad;
+      }
+
+      tooltip.style.setProperty('--tip-left', left + 'px');
+      tooltip.style.setProperty('--tip-top', top + 'px');
+    });
+  },
+
+  /**
    * Set loading state on button
    */
   setLoading(button, loading, text = null) {
@@ -370,5 +420,45 @@ const utils = {
         button.innerHTML = button.dataset.originalText;
       }
     }
+  },
+
+  /**
+   * Show custom confirm dialog (Chrome Extension popup doesn't support native confirm())
+   * @param {string} message - Confirmation message
+   * @returns {Promise<boolean>} - true if confirmed, false if cancelled
+   */
+  showConfirm(message) {
+    return new Promise((resolve) => {
+      const backdrop = document.getElementById('confirm-backdrop');
+      const dialog = document.getElementById('confirm-dialog');
+      const msgEl = document.getElementById('confirm-message');
+      const okBtn = document.getElementById('confirm-ok-btn');
+      const cancelBtn = document.getElementById('confirm-cancel-btn');
+
+      if (!backdrop || !dialog) {
+        // Fallback: try native confirm (works in some contexts)
+        resolve(window.confirm(message));
+        return;
+      }
+
+      msgEl.textContent = message;
+      backdrop.classList.remove('hidden');
+      dialog.classList.remove('hidden');
+
+      const cleanup = () => {
+        backdrop.classList.add('hidden');
+        dialog.classList.add('hidden');
+        okBtn.removeEventListener('click', onOk);
+        cancelBtn.removeEventListener('click', onCancel);
+        backdrop.removeEventListener('click', onCancel);
+      };
+
+      const onOk = () => { cleanup(); resolve(true); };
+      const onCancel = () => { cleanup(); resolve(false); };
+
+      okBtn.addEventListener('click', onOk);
+      cancelBtn.addEventListener('click', onCancel);
+      backdrop.addEventListener('click', onCancel);
+    });
   }
 };

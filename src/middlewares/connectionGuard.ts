@@ -2,9 +2,6 @@ import { Request, Response, NextFunction } from 'express';
 import whatsAppService from '../services/WhatsAppService';
 import { ResponseFormatter } from '../views/ResponseFormatter';
 
-/**
- * Middleware to check if WhatsApp is connected
- */
 export const requireConnection = (
   req: Request,
   res: Response,
@@ -12,10 +9,7 @@ export const requireConnection = (
 ): void => {
   if (!whatsAppService.isReady()) {
     res.status(503).json(
-      ResponseFormatter.error(
-        'WhatsApp is not connected',
-        'Service unavailable'
-      )
+      ResponseFormatter.error('WhatsApp is not connected', 'Service unavailable')
     );
     return;
   }

@@ -97,13 +97,7 @@ export class StatsController {
     this.startTime = new Date();
   }
 
-  /**
-   * Get comprehensive server statistics
-   * GET /api/stats
-   *
-   * Tüm sunucu istatistiklerini tek bir endpoint'ten döner:
-   * server, system, whatsapp, queue, messages, health
-   */
+  /** GET /api/stats */
   public getStats(req: Request, res: Response): void {
     try {
       const stats = this.collectStats();
@@ -208,7 +202,6 @@ export class StatsController {
           cancelledJobs++;
           break;
       }
-      // Count failed from completed jobs with failures
       failedJobs += job.failed;
     }
 

@@ -11,7 +11,7 @@ class WhatsAppAPI {
   static CONFIG = {
     DEFAULT_TIMEOUT: 30000,
     SSE_RETRY_DELAY: 2000,
-    SSE_MAX_RETRIES: 3,
+    SSE_MAX_RETRIES: 10,
     HEARTBEAT_CHECK_INTERVAL: 30000,
     HEARTBEAT_TIMEOUT: 60000,
     STATUS_CACHE_TTL: 5000, // Cache status for 5 seconds
@@ -23,6 +23,7 @@ class WhatsAppAPI {
     this.eventSource = null;
     this.messageEventSource = null;
     this.chatEventSource = null;
+    this.terminalEventSource = null;
 
     // Connection state tracking with caching
     this.lastKnownState = {
@@ -50,7 +51,7 @@ class WhatsAppAPI {
   async init() {
     return new Promise((resolve) => {
       chrome.storage.local.get(['apiUrl', 'apiKey'], (result) => {
-        this.baseUrl = result.apiUrl || 'http://localhost:3000/api';
+        this.baseUrl = (result.apiUrl || 'http://localhost:3000/api').replace(/\/+$/, '');
         this.apiKey = result.apiKey || '';
         resolve();
       });
@@ -61,9 +62,11 @@ class WhatsAppAPI {
    * Save API settings
    */
   async saveSettings(url, key) {
+    // Remove trailing slash to prevent double-slash in endpoints
+    const normalizedUrl = url.replace(/\/+$/, '');
     return new Promise((resolve) => {
-      chrome.storage.local.set({ apiUrl: url, apiKey: key }, () => {
-        this.baseUrl = url;
+      chrome.storage.local.set({ apiUrl: normalizedUrl, apiKey: key }, () => {
+        this.baseUrl = normalizedUrl;
         this.apiKey = key;
         resolve();
       });
@@ -719,6 +722,24 @@ class WhatsAppAPI {
     return this.request('/messages/stats');
   }
 
+  /**
+   * Clear cache for a specific chat
+   */
+  async clearChatCache(jid) {
+    return this.request(`/messages/cache/${encodeURIComponent(jid)}`, {
+      method: 'DELETE'
+    });
+  }
+
+  /**
+   * Clear all message caches
+   */
+  async clearAllCaches() {
+    return this.request('/messages/cache', {
+      method: 'DELETE'
+    });
+  }
+
   // ==================== SCHEDULED MESSAGES ====================
 
   /**
@@ -903,6 +924,60 @@ class WhatsAppAPI {
    */
   async getStats() {
     return this.request('/stats');
+  }
+
+  // ==================== TERMINAL LOG STREAM ====================
+
+  /**
+   * Start terminal log SSE stream
+   * @param {Function} onLog - Called for each log entry
+   * @param {Function} onOpen - Called when connection opens
+   * @param {Function} onError - Called on error
+   */
+  startTerminalStream(onLog, onOpen, onError) {
+    this.stopTerminalStream();
+
+    let url = `${this.baseUrl}/terminal/stream`;
+    if (this.apiKey) {
+      url += `?api_key=${encodeURIComponent(this.apiKey)}`;
+    }
+
+    try {
+      this.terminalEventSource = new EventSource(url);
+    } catch (e) {
+      console.error('Failed to create terminal EventSource:', e);
+      if (onError) onError(e);
+      return;
+    }
+
+    this.terminalEventSource.onopen = () => {
+      console.log('Terminal stream connected');
+      if (onOpen) onOpen();
+    };
+
+    this.terminalEventSource.onmessage = (event) => {
+      try {
+        const data = JSON.parse(event.data);
+        if (onLog) onLog(data);
+      } catch (e) {
+        console.error('Terminal SSE parse error:', e);
+      }
+    };
+
+    this.terminalEventSource.onerror = (error) => {
+      console.error('Terminal SSE error:', error);
+      if (onError) onError(error);
+    };
+  }
+
+  /**
+   * Stop terminal log SSE stream
+   */
+  stopTerminalStream() {
+    if (this.terminalEventSource) {
+      this.terminalEventSource.close();
+      this.terminalEventSource = null;
+    }
   }
 }
 

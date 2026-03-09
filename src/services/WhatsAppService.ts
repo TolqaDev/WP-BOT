@@ -1,4 +1,4 @@
-import makeWASocket, {
+﻿import makeWASocket, {
   DisconnectReason,
   useMultiFileAuthState,
   fetchLatestBaileysVersion,
@@ -65,7 +65,7 @@ class WhatsAppService extends EventEmitter {
   private connectionTimeout: NodeJS.Timeout | null = null;
   private qrAttempts = 0;
   private readonly maxQrAttempts = 5;
-  private readonly connectionTimeoutMs = 120000;
+  private readonly connectionTimeoutMs = 150000;
   private readonly qrFilePath = path.join(process.cwd(), 'public', 'qr.png');
   private readonly logoFilePath = path.join(process.cwd(), 'public', 'logo.png');
   private connectionStartTime: Date | null = null;
@@ -84,9 +84,6 @@ class WhatsAppService extends EventEmitter {
     this.loadLogoCache();
   }
 
-  /**
-   * Pre-load and cache logo for QR generation performance
-   */
   private async loadLogoCache(): Promise<void> {
     try {
       await fs.access(this.logoFilePath);
@@ -107,9 +104,6 @@ class WhatsAppService extends EventEmitter {
     return WhatsAppService.instance;
   }
 
-  /**
-   * Check if a saved session exists
-   */
   public async hasExistingSession(): Promise<boolean> {
     try {
       const credsPath = path.join(config.sessionPath, 'creds.json');
@@ -122,10 +116,6 @@ class WhatsAppService extends EventEmitter {
     }
   }
 
-  /**
-   * Auto-connect if session exists
-   * Called on application startup
-   */
   public async autoConnect(): Promise<boolean> {
     const hasSession = await this.hasExistingSession();
 
@@ -155,23 +145,19 @@ class WhatsAppService extends EventEmitter {
       return;
     }
 
-    // Eski socket varsa temizle
     if (this.socket) {
       logger.debug('Cleaning up old socket before new connection');
       try {
         this.socket.end(undefined);
-      } catch (e) {
-        // Socket zaten kapalı olabilir
-      }
+      } catch { /* socket may already be closed */ }
       this.socket = null;
     }
 
     this.state.isConnecting = true;
     this.qrAttempts = 0;
     this.connectionStartTime = new Date();
-    this.isCancelled = false; // Reset cancel flag on new connection attempt
+    this.isCancelled = false;
 
-    // Set connection timeout
     this.connectionTimeout = setTimeout(() => {
       this.handleConnectionTimeout();
     }, this.connectionTimeoutMs);
@@ -203,7 +189,7 @@ class WhatsAppService extends EventEmitter {
         fireInitQueries: true,
         shouldIgnoreJid: (jid) => !jid || jid.endsWith('@g.us') || jid.endsWith('@broadcast'),
         retryRequestDelayMs: 250,
-        connectTimeoutMs: 60000,
+        connectTimeoutMs: 30000,
         keepAliveIntervalMs: 25000,
         emitOwnEvents: true,
         getMessage: async (key) => {
@@ -300,21 +286,17 @@ class WhatsAppService extends EventEmitter {
 
           if (jid.endsWith('@g.us') || jid.endsWith('@broadcast')) continue;
 
-          // LID kontrolü - @lid ile biten JID'ler için senderPn kullan
           const isLID = jid.endsWith('@lid');
           const msgKey = msg.key as any;
 
           if (isLID || msgKey.senderPn) {
             if (msgKey.senderPn) {
-              // senderPn formatı: "905330886108@s.whatsapp.net"
               jid = msgKey.senderPn as string;
             } else if (msg.key.participant) {
-              // Fallback: participant kullan
               jid = msg.key.participant;
             }
           }
 
-          // JID kontrolü ve formatlama
           if (!jid) continue;
           const formattedJid = this.formatJid(jid);
 
@@ -363,8 +345,8 @@ class WhatsAppService extends EventEmitter {
       this.qrAttempts++;
 
       if (this.qrAttempts > this.maxQrAttempts) {
-        logger.warn({ attempts: this.qrAttempts }, 'Max QR attempts reached, stopping connection');
-        this.stopConnection('Max QR attempts reached');
+        logger.warn({ attempts: this.qrAttempts }, 'Max QR attempts reached, cancelling connection');
+        await this.cancelConnection().catch(() => this.stopConnection('Max QR attempts reached'));
         return;
       }
 
@@ -384,7 +366,7 @@ class WhatsAppService extends EventEmitter {
         this.state.qrCode = null;
         this.deleteQRFile();
         logger.debug('QR code expired');
-      }, 60000);
+      }, 30000);
     } catch (error) {
       logger.error({ error }, 'Failed to generate QR code');
     }
@@ -568,8 +550,8 @@ class WhatsAppService extends EventEmitter {
   }
 
   private handleConnectionTimeout(): void {
-    logger.warn('Connection timeout reached, stopping connection attempt');
-    this.stopConnection('Connection timeout');
+    logger.warn('Connection timeout reached, cancelling connection attempt');
+    this.cancelConnection().catch(() => this.stopConnection('Connection timeout'));
   }
 
   private stopConnection(reason: string): void {
@@ -627,10 +609,7 @@ class WhatsAppService extends EventEmitter {
     const statusCode = error?.output?.statusCode;
     const errorMessage = error?.message || 'Unknown error';
 
-    // Stream Error 515 - WhatsApp sunucu tarafından restart istiyor
     const isStreamError = statusCode === 515 || errorMessage.includes('Stream Errored');
-
-    // Sadece loggedOut durumunda yeniden bağlanma
     const shouldReconnect = statusCode !== DisconnectReason.loggedOut;
 
     logger.info({
@@ -643,12 +622,13 @@ class WhatsAppService extends EventEmitter {
     }, 'Connection closed');
 
     if (statusCode === DisconnectReason.loggedOut) {
+      this.isCancelled = true;
       this.emit('disconnected', 'Logged out');
       this.clearSession();
+      return;
     } else if (shouldReconnect && this.reconnectAttempts < this.maxReconnectAttempts) {
       this.reconnectAttempts++;
 
-      // Stream error için daha kısa bekleme süresi
       const baseDelay = isStreamError ? 2000 : 1000;
       const delay = Math.min(baseDelay * Math.pow(2, this.reconnectAttempts - 1), 30000);
 
@@ -659,7 +639,6 @@ class WhatsAppService extends EventEmitter {
         isStreamError
       }, 'Attempting reconnection');
 
-      // Emit reconnecting event so UI can show appropriate status
       this.emit('reconnecting', {
         attempt: this.reconnectAttempts,
         delay,
@@ -673,7 +652,6 @@ class WhatsAppService extends EventEmitter {
         });
       }, delay);
     } else {
-      // Max attempts reached or should not reconnect
       this.reconnectAttempts = 0;
       this.emit('disconnected', this.reconnectAttempts >= this.maxReconnectAttempts
         ? 'Max reconnection attempts reached'
@@ -756,85 +734,134 @@ class WhatsAppService extends EventEmitter {
       callId,
       isVideo,
       autoReject: callRejectEnabled
-    }, 'Gelen arama algılandı');
+    }, 'Incoming call detected');
 
     if (!callRejectEnabled) {
-      logger.debug({ callerId }, 'Otomatik arama reddi devre dışı, arama yanıtsız bırakılıyor');
+      logger.debug({ callerId }, 'Auto call reject disabled, call left unanswered');
       return;
     }
 
     if (!this.socket) {
-      logger.warn('Socket bağlantısı yok, arama reddedilemedi');
+      logger.warn('Socket connection not available, call could not be rejected');
       return;
     }
 
     try {
-      // Reject the call
       await this.socket.rejectCall(callId, callerId);
-      logger.info({ callerId, callId }, 'Arama otomatik olarak reddedildi');
+      logger.info({ callerId, callId }, 'Call automatically rejected');
     } catch (error) {
-      logger.error({ error, callerId, callId }, 'Arama reddedilemedi');
+      logger.error({ error, callerId, callId }, 'Call could not be rejected');
     }
   }
 
 
   private parseIncomingMessage(msg: proto.IWebMessageInfo): IncomingMessage | null {
     try {
-      const messageContent = msg.message;
+      let messageContent = msg.message;
       if (!messageContent) return null;
+
+      if (messageContent.protocolMessage || messageContent.reactionMessage) {
+        return null;
+      }
+
+      if ((messageContent as any).viewOnceMessage?.message) {
+        messageContent = (messageContent as any).viewOnceMessage.message;
+      } else if ((messageContent as any).viewOnceMessageV2?.message) {
+        messageContent = (messageContent as any).viewOnceMessageV2.message;
+      } else if ((messageContent as any).ephemeralMessage?.message) {
+        messageContent = (messageContent as any).ephemeralMessage.message;
+      } else if ((messageContent as any).documentWithCaptionMessage?.message) {
+        messageContent = (messageContent as any).documentWithCaptionMessage.message;
+      }
+
+      if (!messageContent) return null;
+
+      const mc = messageContent!;
 
       let content = '';
       let type: IncomingMessage['type'] = 'text';
 
-      if (messageContent.conversation) {
-        content = messageContent.conversation;
-      } else if (messageContent.extendedTextMessage?.text) {
-        content = messageContent.extendedTextMessage.text;
-      } else if (messageContent.imageMessage) {
-        content = messageContent.imageMessage.caption || '[Image]';
+      if (mc.conversation) {
+        content = mc.conversation;
+      } else if (mc.extendedTextMessage?.text) {
+        content = mc.extendedTextMessage.text;
+      } else if (mc.imageMessage) {
+        content = mc.imageMessage.caption || '[Image]';
         type = 'image';
-      } else if (messageContent.videoMessage) {
-        content = messageContent.videoMessage.caption || '[Video]';
+      } else if (mc.videoMessage) {
+        content = mc.videoMessage.caption || '[Video]';
         type = 'video';
-      } else if (messageContent.audioMessage) {
-        content = '[Audio]';
-        type = 'audio';
-      } else if (messageContent.documentMessage) {
-        content = messageContent.documentMessage.fileName || '[Document]';
+      } else if (mc.audioMessage) {
+        if ((mc.audioMessage as any).ptt) {
+          content = '[Ptt]';
+          type = 'ptt';
+        } else {
+          content = '[Audio]';
+          type = 'audio';
+        }
+      } else if (mc.documentMessage) {
+        content = mc.documentMessage.fileName || '[Document]';
         type = 'document';
+      } else if (mc.stickerMessage) {
+        content = '[Sticker]';
+        type = 'sticker';
+      } else if (mc.locationMessage) {
+        const loc = mc.locationMessage;
+        content = loc.name || loc.address || '[Location]';
+        type = 'location';
+      } else if (mc.liveLocationMessage) {
+        content = '[Live Location]';
+        type = 'liveLocation';
+      } else if (mc.contactMessage) {
+        content = (mc.contactMessage as any).displayName || '[Contact]';
+        type = 'vcard';
+      } else if (mc.contactsArrayMessage) {
+        const contacts = (mc.contactsArrayMessage as any).contacts;
+        content = contacts?.length ? `[${contacts.length} Contact]` : '[Contact]';
+        type = 'vcard';
+      } else if ((mc as any).pollCreationMessage || (mc as any).pollCreationMessageV3) {
+        const poll = (mc as any).pollCreationMessage || (mc as any).pollCreationMessageV3;
+        content = poll?.name || '[Poll]';
+        type = 'poll';
+      } else if ((mc as any).eventMessage) {
+        const evt = (mc as any).eventMessage;
+        content = evt?.name || '[Event]';
+        type = 'event';
+      } else if ((mc as any).pollUpdateMessage) {
+        content = '[Poll]';
+        type = 'poll';
+      } else {
+        const knownKeys = Object.keys(mc).filter(k => k !== 'messageContextInfo' && k !== 'senderKeyDistributionMessage');
+        if (knownKeys.length === 0) return null;
+        content = '[Media]';
+        type = 'sticker';
+        logger.debug({ keys: knownKeys }, 'Unknown message type encountered');
       }
 
-      // JID'yi doğru şekilde çıkar
-      // remoteJid bazen LID (Linked ID) olabilir - @lid ile biter
-      // Gerçek numara senderPn alanında bulunur
       let jid = msg.key.remoteJid || '';
       const isGroup = jid.endsWith('@g.us');
       const isFromMe = msg.key.fromMe === true;
       const isLID = jid.endsWith('@lid');
 
-      // senderPn alanı varsa (gerçek telefon numarası) onu kullan
       const msgKey = msg.key as any;
       if (!isFromMe && (isLID || msgKey.senderPn)) {
         if (msgKey.senderPn) {
-          // senderPn formatı: "905330886108@s.whatsapp.net"
           jid = msgKey.senderPn;
           logger.debug({
             originalJid: msg.key.remoteJid,
             senderPn: msgKey.senderPn,
             pushName: msg.pushName
-          }, 'LID tespit edildi, senderPn kullanılıyor');
+          }, 'LID detected, using senderPn');
         } else if (msg.key.participant) {
-          // Fallback: participant kullan
           jid = msg.key.participant;
           logger.debug({
             originalJid: msg.key.remoteJid,
             participant: msg.key.participant,
             pushName: msg.pushName
-          }, 'LID tespit edildi, participant kullanılıyor');
+          }, 'LID detected, using participant');
         }
       }
 
-      // JID'yi temizle ve formatla
       const cleanJid = this.formatJid(jid);
 
       logger.debug({
@@ -845,7 +872,7 @@ class WhatsAppService extends EventEmitter {
         pushName: msg.pushName,
         isLID,
         isFromMe
-      }, 'Mesaj JID analizi');
+      }, 'Message JID analysis');
 
 
       return {
@@ -860,7 +887,7 @@ class WhatsAppService extends EventEmitter {
         fromMe: isFromMe,
       };
     } catch (error) {
-      logger.error({ error }, 'parseIncomingMessage hatası');
+      logger.error({ error }, 'Failed to parse incoming message');
       return null;
     }
   }
@@ -895,26 +922,19 @@ class WhatsAppService extends EventEmitter {
   }
 
   private formatJid(jid: string): string {
-    // Önce JID zaten doğru formatta mı kontrol et
     if (jid.includes('@s.whatsapp.net')) {
-      // JID'den sadece numara ve domain kısmını al (device ID'yi kaldır)
       const parts = jid.split('@');
-      const phone = parts[0].split(':')[0]; // 905079249858:10 -> 905079249858
+      const phone = parts[0].split(':')[0];
       return `${phone}@s.whatsapp.net`;
     }
 
     if (jid.includes('@g.us')) {
-      return jid; // Grup JID'lerini olduğu gibi döndür
+      return jid;
     }
 
-    // Telefon numarasını normalleştir
-    // "+90 533 088 61 08", "++90 533 088 61 08", "5330886108" gibi formatları destekle
-    let cleaned = jid.replace(/[^\d]/g, ''); // Sadece rakamları tut
-
-    // Başındaki sıfırları kaldır
+    let cleaned = jid.replace(/[^\d]/g, '');
     cleaned = cleaned.replace(/^0+/, '');
 
-    // 10 haneli numara ve 90 ile başlamıyorsa, Türkiye kodu ekle
     if (cleaned.length === 10 && !cleaned.startsWith('90')) {
       cleaned = '90' + cleaned;
     }
@@ -922,11 +942,6 @@ class WhatsAppService extends EventEmitter {
     return `${cleaned}@s.whatsapp.net`;
   }
 
-  /**
-   * Graceful close - Preserves session for restart
-   * Used during PM2/process shutdown
-   * Does NOT logout or clear session files
-   */
   public async gracefulClose(): Promise<void> {
     logger.info('Graceful close initiated - preserving session...');
 
@@ -943,8 +958,6 @@ class WhatsAppService extends EventEmitter {
 
     if (this.socket) {
       try {
-        // Just end the socket connection without logging out
-        // This preserves the session credentials for next startup
         this.socket.end(undefined);
         logger.info('Socket connection ended gracefully');
       } catch (error) {
@@ -957,19 +970,16 @@ class WhatsAppService extends EventEmitter {
       isConnected: false,
       isConnecting: false,
       qrCode: null,
-      lastConnected: this.state.lastConnected, // Preserve last connected time
+      lastConnected: this.state.lastConnected,
     };
 
     await this.deleteQRFile();
 
-    logger.info('Graceful close completed - session preserved for next startup');
+    logger.info('Graceful close completed - session preserved');
   }
 
-  /**
-   * Full disconnect - Logs out and clears session
-   * Used when user clicks "Logout" button
-   */
   public async disconnect(): Promise<void> {
+    this.isCancelled = true;
     this.stopNotifyReminder();
 
     if (this.connectionTimeout) {
@@ -987,6 +997,9 @@ class WhatsAppService extends EventEmitter {
       } catch (error) {
         logger.warn({ error }, 'Error during logout, forcing disconnect');
       }
+      try {
+        this.socket.end(undefined);
+      } catch { /* socket may already be closed */ }
       this.socket = null;
     }
 
@@ -1118,7 +1131,7 @@ class WhatsAppService extends EventEmitter {
     if (!this.socket || !this.state.isConnected) {
       return {
         success: false,
-        error: 'WhatsApp bağlantısı yok',
+        error: 'WhatsApp not connected',
       };
     }
 
@@ -1126,7 +1139,7 @@ class WhatsAppService extends EventEmitter {
     if (this.isGroupJid(formattedJid)) {
       return {
         success: false,
-        error: 'Grup sohbetlerine medya gönderilemez',
+        error: 'Cannot send media to group chats',
       };
     }
 
@@ -1142,7 +1155,7 @@ class WhatsAppService extends EventEmitter {
         if (!response.ok) {
           return {
             success: false,
-            error: `Medya URL'den indirilemedi: ${response.status}`,
+            error: `Failed to download media from URL: ${response.status}`,
           };
         }
         const arrayBuffer = await response.arrayBuffer();
@@ -1152,7 +1165,7 @@ class WhatsAppService extends EventEmitter {
       if (!mediaBuffer) {
         return {
           success: false,
-          error: 'Medya içeriği bulunamadı (url, base64 veya buffer gerekli)',
+          error: 'No media content provided (url, base64 or buffer required)',
         };
       }
 
@@ -1177,7 +1190,7 @@ class WhatsAppService extends EventEmitter {
           messageContent = {
             audio: mediaBuffer,
             mimetype: options.mimetype || 'audio/mp4',
-            ptt: true, // Voice message
+            ptt: true,
           };
           break;
         case 'document':
@@ -1197,21 +1210,21 @@ class WhatsAppService extends EventEmitter {
         default:
           return {
             success: false,
-            error: `Desteklenmeyen medya tipi: ${options.type}`,
+            error: `Unsupported media type: ${options.type}`,
           };
       }
 
       const result = await this.socket.sendMessage(formattedJid, messageContent);
 
-      logger.debug({ jid: formattedJid, type: options.type, messageId: result?.key.id }, 'Medya gönderildi');
+      logger.debug({ jid: formattedJid, type: options.type, messageId: result?.key.id }, 'Media sent');
 
       return {
         success: true,
         messageId: result?.key.id ?? undefined,
       };
     } catch (error) {
-      const errorMessage = error instanceof Error ? error.message : 'Bilinmeyen hata';
-      logger.error({ error, jid }, 'Medya gönderilemedi');
+      const errorMessage = error instanceof Error ? error.message : 'Unknown error';
+      logger.error({ error, jid }, 'Failed to send media');
 
       return {
         success: false,
@@ -1220,12 +1233,9 @@ class WhatsAppService extends EventEmitter {
     }
   }
 
-  /**
-   * Check if a phone number is registered on WhatsApp
-   */
   public async isOnWhatsApp(phone: string): Promise<ContactInfo | null> {
     if (!this.socket || !this.state.isConnected) {
-      throw new Error('WhatsApp bağlantısı yok');
+      throw new Error('WhatsApp not connected');
     }
 
     try {
@@ -1252,20 +1262,20 @@ class WhatsAppService extends EventEmitter {
         isOnWhatsApp: false,
       };
     } catch (error) {
-      logger.error({ error, phone }, 'WhatsApp kontrol hatası');
+      logger.error({ error, phone }, 'WhatsApp check error');
       throw error;
     }
   }
 
   public async getProfileInfo(jid: string): Promise<ProfileInfo | null> {
     if (!this.socket || !this.state.isConnected) {
-      throw new Error('WhatsApp bağlantısı yok');
+      throw new Error('WhatsApp not connected');
     }
 
     const formattedJid = this.formatJid(jid);
 
     if (this.isGroupJid(formattedJid)) {
-      throw new Error('Grup profilleri desteklenmiyor');
+      throw new Error('Group profiles not supported');
     }
 
     const phone = formattedJid.split('@')[0].split(':')[0];
@@ -1299,35 +1309,29 @@ class WhatsAppService extends EventEmitter {
 
   public async sendPresenceUpdate(jid: string, presence: 'composing' | 'recording' | 'paused'): Promise<void> {
     if (!this.socket || !this.state.isConnected) {
-      throw new Error('WhatsApp bağlantısı yok');
+      throw new Error('WhatsApp not connected');
     }
 
     const formattedJid = this.formatJid(jid);
 
     if (this.isGroupJid(formattedJid)) {
-      throw new Error('Grup sohbetleri desteklenmiyor');
+      throw new Error('Group chats not supported');
     }
 
     try {
       await this.socket.sendPresenceUpdate(presence, formattedJid);
-      logger.debug({ jid: formattedJid, presence }, 'Presence güncellendi');
+      logger.debug({ jid: formattedJid, presence }, 'Presence updated');
     } catch (error) {
       const errorMsg = error instanceof Error ? error.message : 'Unknown error';
-      // Stream error durumunda özel hata fırlat
       if (errorMsg.includes('xml-not-well-formed') || errorMsg.includes('Stream Errored')) {
-        logger.warn({ jid: formattedJid, presence, error: errorMsg }, 'Stream hatası sırasında presence güncellenemedi');
+        logger.warn({ jid: formattedJid, presence, error: errorMsg }, 'Failed to update presence during stream error');
         throw new Error(`Stream Errored: ${errorMsg}`);
       }
-      // Diğer hatalarda log'la ve devam et
-      logger.debug({ jid: formattedJid, presence, error: errorMsg }, 'Presence güncellenemedi');
+      logger.debug({ jid: formattedJid, presence, error: errorMsg }, 'Failed to update presence');
       throw error;
     }
   }
 
-
-  /**
-   * Get all chats from WhatsApp store
-   */
   public getChatsFromStore(): ChatInfo[] {
     if (!this.socket || !this.state.isConnected) {
       return [];
@@ -1374,9 +1378,6 @@ class WhatsAppService extends EventEmitter {
     });
   }
 
-  /**
-   * Fetch message history from WhatsApp store
-   */
   public fetchMessageHistory(
     jid: string,
     limit = 50
@@ -1402,19 +1403,15 @@ class WhatsAppService extends EventEmitter {
       }
     }
 
-    logger.debug({ jid: formattedJid, count: messages.length, limit }, 'Mesaj geçmişi store\'dan alındı');
+    logger.debug({ jid: formattedJid, count: messages.length, limit }, 'Message history fetched from store');
 
     return messages.reverse();
   }
 
 
-  /**
-   * Mark all unread messages from a JID as read
-   * Sends read receipt to WhatsApp
-   */
   public async markMessagesAsRead(jid: string): Promise<void> {
     if (!this.socket || !this.state.isConnected) {
-      throw new Error('WhatsApp bağlantısı yok');
+      throw new Error('WhatsApp not connected');
     }
 
     const formattedJid = this.formatJid(jid);
@@ -1428,7 +1425,6 @@ class WhatsAppService extends EventEmitter {
     const unreadKeys: { remoteJid: string; id: string; participant?: string }[] = [];
 
     for (const msg of messages) {
-      // Only mark incoming messages (not fromMe)
       if (!msg.key.fromMe && msg.key.id) {
         unreadKeys.push({
           remoteJid: formattedJid,
@@ -1439,8 +1435,7 @@ class WhatsAppService extends EventEmitter {
 
     if (unreadKeys.length > 0) {
       try {
-        // Send read receipt for the latest messages
-        const latestKeys = unreadKeys.slice(-10); // Son 10 mesaj
+        const latestKeys = unreadKeys.slice(-10);
         for (const key of latestKeys) {
           await this.socket.readMessages([{
             remoteJid: key.remoteJid,
@@ -1448,9 +1443,9 @@ class WhatsAppService extends EventEmitter {
             fromMe: false,
           }]);
         }
-        logger.debug({ jid: formattedJid, count: latestKeys.length }, 'Mesajlar okundu olarak işaretlendi');
+        logger.debug({ jid: formattedJid, count: latestKeys.length }, 'Messages marked as read');
       } catch (error) {
-        logger.debug({ error, jid: formattedJid }, 'Okundu bildirimi gönderilemedi');
+        logger.debug({ error, jid: formattedJid }, 'Failed to send read receipt');
       }
     }
   }
