@@ -824,7 +824,7 @@
             "header": [{ "key": "Content-Type", "value": "application/json" }],
             "body": {
               "mode": "raw",
-              "raw": "{\n  \"timezone\": \"Europe/Istanbul\",\n  \"autoRead\": false,\n  \"notify\": false,\n  \"corsWhiteList\": [],\n  \"callReject\": {\n    \"enabled\": true\n  },\n  \"cacheClearInterval\": 0\n}"
+              "raw": "{\n  \"timezone\": \"Europe/Istanbul\",\n  \"autoRead\": false,\n  \"notify\": false,\n  \"callReject\": {\n    \"enabled\": true\n  },\n  \"cacheClearInterval\": 0\n}"
             },
             "url": {
               "raw": "{{baseUrl}}/api/settings",

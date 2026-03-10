@@ -619,18 +619,6 @@ body{font-family:'Segoe UI',-apple-system,BlinkMacSystemFont,sans-serif;backgrou
 .typing-slider::-webkit-slider-thumb:hover{box-shadow:0 0 6px var(--primary-glow)}
 .typing-slider::-moz-range-thumb{width:14px;height:14px;border-radius:50%;background:var(--primary);cursor:pointer;border:none}
 .typing-duration-value{font-size:11px;font-weight:600;color:var(--text-primary);min-width:48px;text-align:center}
-/* ═══ CORS TAG INPUT ═══ */
-.cors-tag-input-wrapper{background:var(--bg-input);border:1px solid var(--border);border-radius:var(--radius-xs);padding:6px}
-.cors-tags{display:flex;flex-wrap:wrap;gap:4px;margin-bottom:4px;min-height:0}
-.cors-tags:empty{display:none;margin:0}
-.cors-tag{display:inline-flex;align-items:center;gap:3px;padding:2px 6px;background:var(--primary-dim);border:1px solid rgba(0,168,132,.2);border-radius:4px;font-size:10px;font-family:monospace;color:var(--text-primary)}
-.cors-tag.self{border-color:var(--warning);background:rgba(249,168,37,.1)}
-.cors-tag-remove{background:none;border:none;color:var(--text-muted);cursor:pointer;font-size:9px;padding:0 1px;transition:color .2s;display:flex;align-items:center}
-.cors-tag-remove:hover{color:var(--danger)}
-.cors-tag.self .cors-tag-remove{opacity:.3;cursor:not-allowed}
-.cors-input-row{display:flex;gap:4px}
-.cors-input{flex:1;padding:4px 6px;background:transparent;border:none;color:var(--text-primary);font-size:11px;font-family:monospace;outline:none}
-.cors-input::placeholder{color:var(--text-muted)}
 /* ═══ SETTING ROW (Cache Management) ═══ */
 .setting-row{display:flex;align-items:center;gap:8px;padding:6px 8px;background:var(--bg-input);border-radius:var(--radius-xs)}
 .setting-label{display:flex;align-items:center;gap:5px;font-size:11px;color:var(--text-primary);white-space:nowrap}

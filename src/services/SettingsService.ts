@@ -7,7 +7,6 @@ export interface RuntimeSettings {
   timezone: string;
   autoRead: boolean;
   notify: boolean;
-  corsWhiteList: string[];
   callReject: { enabled: boolean };
   cacheClearInterval: number;
 }
@@ -25,7 +24,6 @@ class SettingsService {
       timezone: config.timezone,
       autoRead: config.whatsapp.autoRead,
       notify: config.whatsapp.notify,
-      corsWhiteList: [...config.whatsapp.corsWhiteList],
       callReject: { enabled: config.whatsapp.callReject.enabled },
       cacheClearInterval: config.cacheClearInterval,
     };
@@ -47,7 +45,6 @@ class SettingsService {
       timezone: this.settings.timezone,
       autoRead: this.settings.autoRead,
       notify: this.settings.notify,
-      corsWhiteList: [...this.settings.corsWhiteList],
       callReject: { ...this.settings.callReject },
       cacheClearInterval: this.settings.cacheClearInterval,
     };
@@ -68,7 +65,6 @@ class SettingsService {
     timezone: string;
     autoRead: boolean;
     notify: boolean;
-    corsWhiteList: string[];
     callReject: Partial<{ enabled: boolean }>;
     cacheClearInterval: number;
   }>): RuntimeSettings {
@@ -95,11 +91,6 @@ class SettingsService {
       logger.info({ oldValue: oldSettings.notify, newValue: updates.notify }, 'Notify updated');
     }
 
-    if (updates.corsWhiteList !== undefined) {
-      this.settings.corsWhiteList = [...updates.corsWhiteList];
-      logger.info({ oldValue: oldSettings.corsWhiteList, newValue: updates.corsWhiteList }, 'CORS whitelist updated');
-    }
-
     if (updates.callReject?.enabled !== undefined) {
       this.settings.callReject.enabled = updates.callReject.enabled;
       logger.info({ oldValue: oldSettings.callReject.enabled, newValue: updates.callReject.enabled }, 'Call reject updated');
@@ -119,7 +110,6 @@ class SettingsService {
 
   public get autoRead(): boolean { return this.settings.autoRead; }
   public get notify(): boolean { return this.settings.notify; }
-  public get corsWhiteList(): string[] { return [...this.settings.corsWhiteList]; }
   public get callRejectEnabled(): boolean { return this.settings.callReject.enabled; }
   public get timezone(): string { return this.settings.timezone; }
   public get cacheClearInterval(): number { return this.settings.cacheClearInterval; }
@@ -139,9 +129,6 @@ class SettingsService {
         }
         if (saved.autoRead !== undefined) this.settings.autoRead = saved.autoRead;
         if (saved.notify !== undefined) this.settings.notify = saved.notify;
-        if (saved.corsWhiteList !== undefined && Array.isArray(saved.corsWhiteList)) {
-          this.settings.corsWhiteList = [...saved.corsWhiteList];
-        }
         if (saved.callReject?.enabled !== undefined) {
           this.settings.callReject.enabled = saved.callReject.enabled;
         }
@@ -178,7 +165,6 @@ class SettingsService {
         'AUTO_READ': String(this.settings.autoRead),
         'NOTIFY': String(this.settings.notify),
         'AUTO_REJECT_CALLS': String(this.settings.callReject.enabled),
-        'CORS_WHITE_LIST': `"${this.settings.corsWhiteList.join(', ')}"`,
         'CACHE_CLEAR_INTERVAL': String(this.settings.cacheClearInterval),
       };
 

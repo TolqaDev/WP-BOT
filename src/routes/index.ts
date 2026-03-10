@@ -9,16 +9,15 @@ import { asyncHandler } from '../middlewares/errorHandler';
 import { strictRateLimiter } from '../middlewares/rateLimiter';
 import { requireConnection } from '../middlewares/connectionGuard';
 import authMiddleware from '../middlewares/auth';
-import sseGuard from '../middlewares/sseGuard';
 
 const router = Router();
 
 router.use(authMiddleware);
 
 // SSE
-router.get('/auth/qr/stream', sseGuard, authController.streamQR.bind(authController));
-router.get('/messages/stream', sseGuard, messageController.streamMessages.bind(messageController));
-router.get('/terminal/stream', sseGuard, terminalController.streamTerminal.bind(terminalController));
+router.get('/auth/qr/stream', authController.streamQR.bind(authController));
+router.get('/messages/stream', messageController.streamMessages.bind(messageController));
+router.get('/terminal/stream', terminalController.streamTerminal.bind(terminalController));
 
 // Auth
 router.get('/auth/qr', asyncHandler(authController.getQR.bind(authController)));

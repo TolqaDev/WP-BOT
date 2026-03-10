@@ -315,7 +315,6 @@ export interface CallRejectSettings {
 export interface WhatsAppConfig {
   autoRead: boolean;
   notify: boolean;
-  corsWhiteList: string[];
   callReject: CallRejectSettings;
 }
 

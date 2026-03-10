@@ -22,7 +22,7 @@ export class SettingsController {
   /** PUT /api/settings */
   public updateSettings(req: Request, res: Response): void {
     try {
-      const { timezone, autoRead, notify, corsWhiteList, callReject, cacheClearInterval } = req.body;
+      const { timezone, autoRead, notify, callReject, cacheClearInterval } = req.body;
 
       if (timezone !== undefined && typeof timezone !== 'string') {
         res.status(400).json(ResponseFormatter.badRequest('timezone must be a string (e.g., "Europe/Istanbul")'));
@@ -34,10 +34,6 @@ export class SettingsController {
       }
       if (notify !== undefined && typeof notify !== 'boolean') {
         res.status(400).json(ResponseFormatter.badRequest('notify must be a boolean'));
-        return;
-      }
-      if (corsWhiteList !== undefined && !Array.isArray(corsWhiteList)) {
-        res.status(400).json(ResponseFormatter.badRequest('corsWhiteList must be a string array'));
         return;
       }
       if (callReject !== undefined) {
@@ -58,7 +54,7 @@ export class SettingsController {
       }
 
       const updatedSettings = settingsService.updateSettings({
-        timezone, autoRead, notify, corsWhiteList, callReject, cacheClearInterval,
+        timezone, autoRead, notify, callReject, cacheClearInterval,
       });
       const timeInfo = settingsService.getTimeInfo();
 

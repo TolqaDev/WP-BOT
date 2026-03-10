@@ -43,21 +43,9 @@
 4. `chrome-extension` klasörünü seçin
 5. Yüklenen Extension'ın **ID**'sini not edin
 
-### 2. API CORS Ayarı
+### 2. API Bağlantısı
 
-Extension'ın API'ye erişebilmesi için CORS whitelist'ine eklenmesi gerekir:
-
-**API üzerinden:**
-```bash
-curl -X PUT http://localhost:3000/api/settings \
-  -H "Content-Type: application/json" \
-  -d '{"corsWhiteList": ["chrome-extension://YOUR_EXTENSION_ID"]}'
-```
-
-**.env dosyasına ekleyerek:**
-```env
-CORS_WHITELIST=chrome-extension://YOUR_EXTENSION_ID,http://localhost:3000
-```
+Extension API'ye erişmek için API Key kullanır. `.env` dosyasında `API_KEY` tanımlayın veya otomatik oluşturulan anahtarı kullanın.
 
 ### 3. Addon'da API Bağlantısı
 

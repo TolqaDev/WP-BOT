@@ -19,9 +19,7 @@ class WhatsAppBOTApp {
       singleScheduleMode: 'now', // now or later
       singleMessageType: 'text',
       unreadCount: 0,
-      unreadChats: new Set(),
-      corsWhiteList: [],
-      clientIp: null
+      unreadChats: new Set()
     };
   }
 
@@ -190,15 +188,6 @@ class WhatsAppBOTApp {
       if (timeEl) timeEl.textContent = now.toLocaleString('tr-TR', { timeZone: tz });
       utils.toast(`Saat dilimi ${tz} olarak ayarlandı`, 'success');
     });
-
-    // CORS tag input
-    document.getElementById('cors-add-btn')?.addEventListener('click', () => this.addCorsTag());
-    document.getElementById('cors-new-ip')?.addEventListener('keydown', (e) => {
-      if (e.key === 'Enter') { e.preventDefault(); this.addCorsTag(); }
-    });
-
-    // Fetch client IP for self-detection
-    this.fetchClientIp();
 
 
     // Connection
@@ -1332,10 +1321,6 @@ class WhatsAppBOTApp {
         document.getElementById('server-notify').checked = data.notify || false;
         document.getElementById('server-call-reject').checked = data.callReject?.enabled || false;
 
-        // Load CORS White List
-        this.state.corsWhiteList = data.corsWhiteList || [];
-        this.renderCorsTags();
-
         // Load cache clear interval
         const cacheIntervalSelect = document.getElementById('server-cache-clear-interval');
         if (cacheIntervalSelect) {
@@ -1379,7 +1364,6 @@ class WhatsAppBOTApp {
         callReject: {
           enabled: document.getElementById('server-call-reject').checked
         },
-        corsWhiteList: this.state.corsWhiteList || [],
         cacheClearInterval: parseInt(document.getElementById('server-cache-clear-interval')?.value || '0', 10)
       };
 
@@ -1567,50 +1551,6 @@ class WhatsAppBOTApp {
     }
   }
 
-  async fetchClientIp() {
-    try {
-      const res = await fetch('https://api.ipify.org?format=json');
-      const data = await res.json();
-      this.state.clientIp = data.ip;
-    } catch { this.state.clientIp = null; }
-  }
-
-  renderCorsTags() {
-    const container = document.getElementById('cors-tags');
-    if (!container) return;
-    const list = this.state.corsWhiteList || [];
-    const clientIp = this.state.clientIp;
-
-    container.innerHTML = list.map(ip => {
-      const isSelf = clientIp && (ip === clientIp || ip === '::1' || ip === '127.0.0.1');
-      return `<span class="cors-tag${isSelf ? ' self' : ''}" data-ip="${utils.escapeHtml(ip)}">
-        ${utils.escapeHtml(ip)}${isSelf ? ' <i class="fas fa-user" title="Senin IP"></i>' : ''}
-        <button class="cors-tag-remove" data-ip="${utils.escapeHtml(ip)}"${isSelf ? ' disabled title="Kendi IP adresinizi silemezsiniz"' : ' title="Kaldır"'}><i class="fas fa-times"></i></button>
-      </span>`;
-    }).join('');
-
-    container.querySelectorAll('.cors-tag-remove:not([disabled])').forEach(btn => {
-      btn.addEventListener('click', (e) => {
-        e.preventDefault();
-        const ip = btn.dataset.ip;
-        this.state.corsWhiteList = this.state.corsWhiteList.filter(i => i !== ip);
-        this.renderCorsTags();
-      });
-    });
-  }
-
-  addCorsTag() {
-    const input = document.getElementById('cors-new-ip');
-    const val = input?.value.trim();
-    if (!val) return;
-    if (this.state.corsWhiteList.includes(val)) {
-      utils.toast('Bu IP zaten listede', 'warning');
-      return;
-    }
-    this.state.corsWhiteList.push(val);
-    this.renderCorsTags();
-    input.value = '';
-  }
 
   toggleApiKeyVisibility() {
     const input = document.getElementById('api-key');

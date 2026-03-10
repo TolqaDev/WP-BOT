@@ -29,7 +29,6 @@ const config: AppConfig = {
   whatsapp: {
     autoRead: process.env.AUTO_READ?.toLowerCase() === 'true',
     notify: process.env.NOTIFY?.toLowerCase() === 'true',
-    corsWhiteList: parseCorsWhiteList(process.env.CORS_WHITE_LIST),
     callReject: {
       enabled: process.env.AUTO_REJECT_CALLS?.toLowerCase() === 'true',
     },
