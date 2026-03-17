@@ -56,6 +56,12 @@ export const authMiddleware = (
   res: Response,
   next: NextFunction
 ): void => {
+  // CORS preflight (OPTIONS) istekleri authentication gerektirmez
+  if (req.method === 'OPTIONS') {
+    next();
+    return;
+  }
+
   const apiKey = extractApiKey(req);
 
   if (!apiKey) {

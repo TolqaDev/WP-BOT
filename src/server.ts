@@ -14,18 +14,18 @@ const SERVER_CONFIG = {
   HEADERS_TIMEOUT_MS: 66000,
 } as const;
 
-const getCorsOrigin = (): string | string[] | boolean => {
+const getCorsOrigin = (): string | string[] | boolean | ((origin: string | undefined, callback: (err: Error | null, allow?: boolean) => void) => void) => {
   const corsOrigin = process.env.CORS_ORIGIN;
   if (corsOrigin) {
-    if (corsOrigin === '*') return '*';
+    if (corsOrigin === '*') return true; // reflect request origin (credentials uyumlu)
     return corsOrigin.split(',').map(s => s.trim()).filter(Boolean);
   }
-  return config.nodeEnv === 'production' ? false : '*';
+  return true; // production dahil tüm originlere izin ver (chrome extension için gerekli)
 };
 
 const corsOptions = {
   origin: getCorsOrigin(),
-  methods: ['GET', 'POST', 'DELETE', 'PUT', 'PATCH'],
+  methods: ['GET', 'POST', 'DELETE', 'PUT', 'PATCH', 'OPTIONS'],
   allowedHeaders: ['Content-Type', 'Authorization', 'X-API-Key'],
   credentials: true,
   maxAge: 86400,
