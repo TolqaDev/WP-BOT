@@ -212,13 +212,18 @@ class WhatsAppAPI {
       this.eventSource = new EventSource(url);
     } catch (e) {
       console.error('Failed to create EventSource:', e);
-      if (onError) onError(e);
+      if (onError) onError(new Error('Sunucuya bağlanılamadı. URL ve ağ ayarlarınızı kontrol edin.'));
       return;
     }
 
     let isConnected = false;
     let connectionStabilized = false;
     let stabilizationTimer = null;
+    let hasReceivedMessage = false; // Sunucudan hiç mesaj alındı mı
+    let stabilizationRetryCount = 0; // Stabilizasyon sırasındaki hata sayısı
+    const maxStabilizationRetries = 5;
+    let qrPhaseRetryCount = 0; // QR bekleme fazındaki hata sayısı
+    const maxQrPhaseRetries = 5;
 
     const clearStabilizationTimer = () => {
       if (stabilizationTimer) {
@@ -227,7 +232,17 @@ class WhatsAppAPI {
       }
     };
 
+    this.eventSource.onopen = () => {
+      console.log('QR SSE stream opened');
+      // onopen sadece HTTP bağlantısını gösterir, mesaj alındığını değil
+      // hasReceivedMessage yalnızca onmessage'de set edilir
+      qrPhaseRetryCount = 0; // Bağlantı yeniden kuruldu, sayacı sıfırla
+    };
+
     this.eventSource.onmessage = (event) => {
+      hasReceivedMessage = true; // Sunucudan en az bir mesaj alındı
+      stabilizationRetryCount = 0; // Mesaj alındığında retry sayacını sıfırla
+
       try {
         const data = JSON.parse(event.data);
 
@@ -287,6 +302,15 @@ class WhatsAppAPI {
       console.error('QR SSE error:', error);
       clearStabilizationTimer();
 
+      // Sunucudan hiç mesaj alınamadıysa → sunucu kapalı veya erişilemiyor
+      // EventSource otomatik retry yapmasını engelle, hemen kapat
+      if (!hasReceivedMessage) {
+        console.error('QR stream failed: server unreachable (no messages received)');
+        this.stopQRStream();
+        if (onError) onError(new Error('Sunucuya bağlanılamadı. Sunucunun çalıştığından emin olun.'));
+        return;
+      }
+
       // Bağlantı başarılı olduysa VE stabilize olduysa stream kapanması normal
       if (isConnected && connectionStabilized) {
         console.log('QR stream closed after successful stable connection');
@@ -295,17 +319,46 @@ class WhatsAppAPI {
       }
 
       // Bağlantı sağlandı ama henüz stabilize olmadı - bu 515 error olabilir
-      // Bu durumda stream'i kapatma, server tarafı reconnect yapacak
+      // Sınırlı sayıda retry yap, sonsuz döngüye girme
       if (isConnected && !connectionStabilized) {
-        console.log('QR stream error during stabilization, server may be reconnecting');
-        // Stream'i kapatma, server reconnect event'i gönderecek
+        stabilizationRetryCount++;
+        if (stabilizationRetryCount <= maxStabilizationRetries) {
+          console.log(`QR stream error during stabilization (${stabilizationRetryCount}/${maxStabilizationRetries}), waiting for server reconnect...`);
+          // Stream'i kapatma, server reconnect event'i gönderecek
+          return;
+        }
+        // Max retry aşıldı - API'den son durumu kontrol et ve kapat
+        console.warn('Max stabilization retries reached, verifying final status...');
+        this.stopQRStream();
+        this.verifyConnectionStatus(true).then(status => {
+          if (status.isConnected) {
+            this.lastKnownState.isConnected = true;
+            onConnected(status.session);
+          } else {
+            if (onError) onError(new Error('Bağlantı stabilize edilemedi'));
+          }
+        }).catch(() => {
+          if (onError) onError(new Error('Bağlantı stabilize edilemedi'));
+        });
         return;
+      }
+
+      // QR bekleme fazında (henüz bağlanmamış) - EventSource auto-retry'a izin ver
+      // Geçici ağ kesintileri stream'i öldürmesin
+      if (!isConnected) {
+        qrPhaseRetryCount++;
+        if (qrPhaseRetryCount <= maxQrPhaseRetries) {
+          console.log(`QR stream error during QR wait phase (${qrPhaseRetryCount}/${maxQrPhaseRetries}), allowing auto-retry...`);
+          // Stream'i kapatMA - EventSource otomatik yeniden bağlanacak
+          return;
+        }
+        console.warn('Max QR phase retries reached, closing stream');
       }
 
       // SSE bağlantısı kapandığında kontrol et
       if (this.eventSource && this.eventSource.readyState === EventSource.CLOSED) {
         // Önce gerçek durumu kontrol et
-        this.verifyConnectionStatus().then(status => {
+        this.verifyConnectionStatus(true).then(status => {
           if (status.isConnected) {
             // Aslında bağlı, SSE sadece kapanmış
             console.log('SSE closed but API says connected');
@@ -320,7 +373,7 @@ class WhatsAppAPI {
           }
         }).catch(() => {
           // API erişilemedi
-          if (onError) onError(error);
+          if (onError) onError(new Error('Sunucu bağlantısı kesildi'));
         });
       }
       this.stopQRStream();
@@ -437,13 +490,17 @@ class WhatsAppAPI {
 
     this.messageEventSource = new EventSource(url);
 
+    let msgStreamHasReceived = false; // Sunucudan mesaj alındı mı
+
     this.messageEventSource.onopen = () => {
       console.log('Message stream connected');
       this.sseRetryConfig.currentRetry = 0;
+      msgStreamHasReceived = true;
       startHeartbeatCheck();
     };
 
     this.messageEventSource.onmessage = (event) => {
+      msgStreamHasReceived = true;
       try {
         const data = JSON.parse(event.data);
 
@@ -501,6 +558,14 @@ class WhatsAppAPI {
     this.messageEventSource.onerror = (error) => {
       console.error('Message SSE error:', error);
       cleanup();
+
+      // Sunucudan hiç mesaj alınamadıysa → sunucu kapalı veya erişilemiyor
+      if (!msgStreamHasReceived) {
+        console.error('Message stream failed: server unreachable');
+        if (onError) onError(new Error('Sunucu erişilemiyor'));
+        this.stopMessageStream();
+        return;
+      }
 
       // SSE hatası aldık ama bu her zaman gerçek disconnect anlamına gelmez
       // Önce gerçek durumu kontrol et
@@ -584,12 +649,16 @@ class WhatsAppAPI {
 
     this.chatEventSource = new EventSource(url);
 
+    let chatHasReceived = false;
+
     this.chatEventSource.onopen = () => {
       console.log('Chat stream connected for:', jid);
       chatRetryCount = 0;
+      chatHasReceived = true;
     };
 
     this.chatEventSource.onmessage = (event) => {
+      chatHasReceived = true;
       try {
         const data = JSON.parse(event.data);
 
@@ -615,6 +684,14 @@ class WhatsAppAPI {
     this.chatEventSource.onerror = (error) => {
       console.error('Chat SSE error:', error);
       cleanup();
+
+      // Sunucudan hiç mesaj alınamadıysa → sunucu kapalı
+      if (!chatHasReceived) {
+        console.error('Chat stream failed: server unreachable');
+        if (onError) onError(new Error('Sunucu erişilemiyor'));
+        this.stopChatStream();
+        return;
+      }
 
       // Chat stream hatası - ama bu her zaman bir sorun değil
       // API bağlantısı var mı kontrol et
@@ -968,16 +1045,24 @@ class WhatsAppAPI {
       this.terminalEventSource = new EventSource(url);
     } catch (e) {
       console.error('Failed to create terminal EventSource:', e);
-      if (onError) onError(e);
+      if (onError) onError(new Error('Sunucuya bağlanılamadı'));
       return;
     }
 
+    let terminalHasReceived = false;
+    let terminalErrorCount = 0;
+    const maxTerminalErrors = 3;
+
     this.terminalEventSource.onopen = () => {
       console.log('Terminal stream connected');
+      terminalHasReceived = true;
+      terminalErrorCount = 0;
       if (onOpen) onOpen();
     };
 
     this.terminalEventSource.onmessage = (event) => {
+      terminalHasReceived = true;
+      terminalErrorCount = 0;
       try {
         const data = JSON.parse(event.data);
         if (onLog) onLog(data);
@@ -988,6 +1073,17 @@ class WhatsAppAPI {
 
     this.terminalEventSource.onerror = (error) => {
       console.error('Terminal SSE error:', error);
+      terminalErrorCount++;
+
+      // Sunucudan hiç mesaj alınamadıysa veya çok fazla hata olduysa → kapat
+      if (!terminalHasReceived || terminalErrorCount > maxTerminalErrors) {
+        console.error('Terminal stream failed: server unreachable or too many errors');
+        this.stopTerminalStream();
+        if (onError) onError(new Error('Terminal stream bağlantısı kesildi'));
+        return;
+      }
+
+      // Geçici hata olabilir - EventSource kendi retry mekanizmasına izin ver
       if (onError) onError(error);
     };
   }

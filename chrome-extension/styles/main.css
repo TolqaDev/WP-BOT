@@ -560,9 +560,15 @@ body{font-family:'Segoe UI',-apple-system,BlinkMacSystemFont,sans-serif;backgrou
 /* ═══ MODAL SERVER LIST ═══ */
 .modal-servers{display:flex;flex-direction:column;gap:3px}
 .modal-servers-label{font-size:9px;font-weight:600;color:var(--text-muted);text-transform:uppercase;letter-spacing:.5px;margin-bottom:2px}
-.modal-server-item{display:flex;align-items:center;gap:8px;padding:8px 10px;background:var(--bg-input);border:1px solid var(--border);border-radius:var(--radius-xs);cursor:pointer;transition:var(--transition);width:100%;position:relative}
+.modal-server-item{display:flex;align-items:center;gap:8px;padding:8px 10px;background:var(--bg-input);border:1px solid var(--border);border-radius:var(--radius-xs);cursor:pointer;transition:var(--transition);width:100%;position:relative;user-select:none}
 .modal-server-item:hover{border-color:var(--primary);background:var(--bg-hover)}
 .modal-server-item.active{border-color:var(--primary);background:var(--primary-dim);cursor:default}
+.modal-server-drag-handle{display:flex;align-items:center;justify-content:center;width:16px;color:var(--text-muted);font-size:10px;cursor:grab;opacity:.3;transition:var(--transition);flex-shrink:0;padding:2px 0}
+.modal-server-drag-handle:hover{opacity:.8;color:var(--text-primary)}
+.modal-server-drag-handle:active{cursor:grabbing}
+.modal-server-item.modal-server-dragging{opacity:.6;border-color:var(--primary);background:var(--primary-dim);box-shadow:0 4px 16px rgba(0,168,132,.2);transform:scale(1.02);z-index:10;position:relative}
+.modal-servers-reordering .modal-server-item{transition:transform .15s ease,opacity .15s ease}
+.modal-servers-reordering .modal-server-drag-handle{opacity:.6}
 .modal-server-dot{width:7px;height:7px;border-radius:50%;background:var(--text-muted);flex-shrink:0}
 .modal-server-dot.connected{background:var(--success);box-shadow:0 0 4px var(--primary-glow)}
 .modal-server-info{flex:1;min-width:0;display:flex;flex-direction:column;text-align:left}

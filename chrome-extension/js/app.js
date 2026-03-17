@@ -510,6 +510,39 @@ class WhatsAppBOTApp {
       return;
     }
 
+    // Sunucu erişilebilirlik ön-kontrolü - sunucu kapalıysa SSE başlatma
+    let preCheckStatus = null;
+    try {
+      const preCheckResponse = await api.getStatus();
+      if (preCheckResponse.success && preCheckResponse.data) {
+        preCheckStatus = preCheckResponse.data;
+        // Ön-kontrol başarılı - apiReady'i güncelle (önceki hatadan false kalmış olabilir)
+        this.state.apiReady = true;
+        this.updateApiStatusDot('connected');
+
+        // Zaten bağlıysa QR stream başlatmaya gerek yok
+        if (preCheckStatus.isConnected) {
+          this.state.isConnected = true;
+          this.state.isConnecting = false;
+          this.state.sessionInfo = preCheckStatus.session;
+          this.state.hasSession = true;
+          this.updateConnectionUI();
+          this.hideConnectionOverlay();
+          this.switchTab('chats');
+          utils.toast('WhatsApp zaten bağlı!', 'success');
+          this.loadDashboardData();
+          this.loadChats();
+          return;
+        }
+      }
+    } catch (preCheckError) {
+      console.error('Server pre-check failed:', preCheckError);
+      utils.toast('Sunucuya erişilemiyor. Sunucu bağlantı ayarlarını kontrol edin.', 'error');
+      this.state.apiReady = false;
+      this.updateApiStatusDot('error');
+      return;
+    }
+
     try {
       this.state.isConnecting = true;
       this.state.isConnected = false;
@@ -524,7 +557,7 @@ class WhatsAppBOTApp {
       let connectionReceived = false;
       let stabilizationCheckTimer = null;
 
-      // Start QR stream
+      // Start QR stream (SSE only - REST fallback removed to prevent race conditions)
       api.startQRStream(
         // onQR
         (qrCode) => {
@@ -615,8 +648,10 @@ class WhatsAppBOTApp {
           // connectionReceived true ise, stabilization check devam edecek
           if (!connectionReceived) {
             this.state.isConnecting = false;
+            this.state.isConnected = false;
             this.updateConnectionUI();
             this.resetConnectButton();
+            utils.toast(error.message || 'Bağlantı hatası', 'error');
           }
         },
         // onDisconnected
@@ -684,29 +719,6 @@ class WhatsAppBOTApp {
           this.updateConnectionUI();
         }
       );
-
-      // Also try REST endpoint for immediate QR
-      try {
-        const response = await api.getQR();
-        if (response.success && response.data?.qrCode) {
-          const qrImg = document.getElementById('qr-image');
-          const qrPlaceholder = document.getElementById('qr-placeholder');
-          qrImg.src = response.data.qrCode;
-          qrImg.classList.remove('hidden');
-          utils.hide(qrPlaceholder);
-        } else if (response.data?.isConnected) {
-          this.state.isConnecting = false;
-          this.state.isConnected = true;
-          this.state.sessionInfo = response.data.session;
-          this.updateConnectionUI();
-          this.resetConnectButton();
-          api.stopQRStream();
-          utils.toast('WhatsApp bağlandı!', 'success');
-        }
-      } catch (restError) {
-        // REST endpoint hatası - SSE devam ediyor
-        console.log('REST QR endpoint failed, SSE will handle it');
-      }
     } catch (error) {
       console.error('Connect error:', error);
       this.state.isConnecting = false;
@@ -1079,6 +1091,7 @@ class WhatsAppBOTApp {
     // Stop current streams
     this.stopGlobalMessageStream();
     this.stopChatStream();
+    api.stopQRStream();
 
     // Update API settings
     await api.saveSettings(server.url, server.key);
@@ -1090,23 +1103,30 @@ class WhatsAppBOTApp {
       this.updateSidebarLock();
 
       if (this.state.isConnected) {
-        this.hideConnectionOverlay();
+        // WP bağlı — modal kapat, uygulamaya geç
         this.closeApiModal();
+        this.hideConnectionOverlay();
         this.switchTab('chats');
         this.updateApiStatusDot('connected');
         utils.toast(`${server.name} sunucusuna bağlandı`, 'success');
       } else {
+        // Sunucu erişilebilir ama WP bağlı değil — modal kapat, bağlantı ekranını göster
+        this.closeApiModal();
         this.showConnectionOverlay();
         this.updateApiStatusDot('connected');
+        this.resetConnectButton();
         utils.toast(`${server.name} API bağlı, WhatsApp bağlantısı bekleniyor`, 'info');
       }
     } catch (e) {
+      // Sunucu erişilemiyor — modal açık kalsın, hata göster
       this.state.apiReady = false;
       this.updateSidebarLock();
       this.updateApiStatusDot('error');
       utils.toast(`${server.name} sunucusuna bağlanılamadı`, 'error');
     }
 
+    // Modal'daki sunucu listesini güncelle (aktif sunucu değişti)
+    this.renderModalServerList();
     this.updateApiInfoDisplay();
   }
 
@@ -1175,7 +1195,7 @@ class WhatsAppBOTApp {
   }
 
   /**
-   * Render server list in API modal - click to switch directly
+   * Render server list in API modal - click to switch, drag to reorder
    */
   async renderModalServerList() {
     const container = document.getElementById('modal-server-list');
@@ -1195,11 +1215,12 @@ class WhatsAppBOTApp {
       return;
     }
 
-    container.innerHTML = `<div class="modal-servers-label">Kayıtlı Sunucular</div>` + servers.map(server => {
+    container.innerHTML = `<div class="modal-servers-label">Kayıtlı Sunucular</div>` + servers.map((server, index) => {
       const isActive = server.url === currentUrl;
       const displayUrl = (() => { try { return new URL(server.url).host; } catch { return server.url; } })();
       return `
-        <div class="modal-server-item ${isActive ? 'active' : ''}" data-id="${server.id}">
+        <div class="modal-server-item ${isActive ? 'active' : ''}" data-id="${server.id}" data-index="${index}">
+          <div class="modal-server-drag-handle" title="Sürükleyerek sıralayın"><i class="fas fa-grip-vertical"></i></div>
           <div class="modal-server-dot ${isActive ? 'connected' : ''}"></div>
           <div class="modal-server-info">
             <span class="modal-server-name">${utils.escapeHtml(server.name)}</span>
@@ -1213,7 +1234,7 @@ class WhatsAppBOTApp {
     // Click to switch server (not active ones)
     container.querySelectorAll('.modal-server-item:not(.active)').forEach(item => {
       item.addEventListener('click', (e) => {
-        if (e.target.closest('.modal-server-delete')) return;
+        if (e.target.closest('.modal-server-delete') || e.target.closest('.modal-server-drag-handle')) return;
         this.switchServer(item.dataset.id);
       });
     });
@@ -1225,6 +1246,123 @@ class WhatsAppBOTApp {
         this.removeServer(btn.dataset.id);
       });
     });
+
+    // Drag & Drop reordering
+    this._setupServerDragDrop(container);
+  }
+
+  /**
+   * Setup mouse-based drag & drop for server list reordering
+   * (HTML5 drag API is unreliable in Chrome extension popups)
+   */
+  _setupServerDragDrop(container) {
+    // Cleanup previous listeners to prevent memory leak on re-render
+    if (this._dragCleanup) {
+      this._dragCleanup();
+    }
+
+    let draggedItem = null;
+    let startY = 0;
+    let currentY = 0;
+    let isDragging = false;
+    let itemHeight = 0;
+
+    const getServerItems = () => [...container.querySelectorAll('.modal-server-item')];
+
+    // Activate drag on handle mousedown
+    const onMouseDown = (e) => {
+      const handle = e.target.closest('.modal-server-drag-handle');
+      if (!handle) return;
+
+      const item = handle.closest('.modal-server-item');
+      if (!item) return;
+
+      e.preventDefault();
+      draggedItem = item;
+      startY = e.clientY;
+      itemHeight = item.getBoundingClientRect().height + 3; // gap included
+
+      // Visual feedback
+      item.classList.add('modal-server-dragging');
+      container.classList.add('modal-servers-reordering');
+      isDragging = true;
+    };
+
+    const onMouseMove = (e) => {
+      if (!isDragging || !draggedItem) return;
+
+      currentY = e.clientY;
+      const deltaY = currentY - startY;
+      const moveCount = Math.round(deltaY / itemHeight);
+
+      if (moveCount === 0) return;
+
+      const currentItems = getServerItems();
+      const currentIndex = currentItems.indexOf(draggedItem);
+      const newIndex = Math.max(0, Math.min(currentItems.length - 1, currentIndex + (moveCount > 0 ? 1 : -1)));
+
+      if (newIndex !== currentIndex) {
+        const referenceItem = currentItems[newIndex];
+        if (referenceItem) {
+          if (newIndex > currentIndex) {
+            referenceItem.after(draggedItem);
+          } else {
+            container.insertBefore(draggedItem, referenceItem);
+          }
+          startY = currentY; // Reset reference point after each swap
+        }
+      }
+    };
+
+    const onMouseUp = async () => {
+      if (!isDragging || !draggedItem) return;
+
+      draggedItem.classList.remove('modal-server-dragging');
+      container.classList.remove('modal-servers-reordering');
+
+      // Persist new order
+      const finalItems = getServerItems();
+      const newOrder = finalItems.map(el => el.dataset.id);
+      await this._reorderServers(newOrder);
+
+      isDragging = false;
+      draggedItem = null;
+    };
+
+    container.addEventListener('mousedown', onMouseDown);
+    document.addEventListener('mousemove', onMouseMove);
+    document.addEventListener('mouseup', onMouseUp);
+
+    // Store cleanup function for next re-render
+    this._dragCleanup = () => {
+      container.removeEventListener('mousedown', onMouseDown);
+      document.removeEventListener('mousemove', onMouseMove);
+      document.removeEventListener('mouseup', onMouseUp);
+    };
+  }
+
+  /**
+   * Persist new server order after drag & drop
+   */
+  async _reorderServers(orderedIds) {
+    const servers = await this.getSavedServers();
+    const reordered = [];
+
+    for (const id of orderedIds) {
+      const server = servers.find(s => s.id === id);
+      if (server) reordered.push(server);
+    }
+
+    // Add any servers not in orderedIds (safety net)
+    for (const server of servers) {
+      if (!reordered.find(s => s.id === server.id)) {
+        reordered.push(server);
+      }
+    }
+
+    await this.saveServers(reordered);
+    // Dashboard'daki sunucu listesini de güncelle
+    this.renderServerList();
   }
 
   /**
@@ -1590,6 +1728,12 @@ class WhatsAppBOTApp {
 
     try {
       utils.setLoading('save-settings', true);
+
+      // Mevcut stream'leri durdur
+      this.stopGlobalMessageStream();
+      this.stopChatStream();
+      api.stopQRStream();
+
       await api.saveSettings(url, key);
 
       // Save to multi-server list
@@ -1607,21 +1751,29 @@ class WhatsAppBOTApp {
         this.updateSidebarLock();
 
         if (this.state.isConnected) {
+          // WP bağlı — modal kapat, uygulamaya geç
           this.closeApiModal();
           this.hideConnectionOverlay();
           this.switchTab('chats');
           this.updateApiStatusDot('connected');
         } else {
+          // Sunucu erişilebilir ama WP bağlı değil — modal kapat, bağlantı ekranını göster
           this.closeApiModal();
           this.showConnectionOverlay();
           this.updateApiStatusDot('connected');
+          this.resetConnectButton();
         }
       } catch (e) {
-        // API bağlantısı yok ama ayarlar kaydedildi
+        // Sunucu erişilemiyor — modal açık kalsın (sunucular sekmesine geç)
         this.state.apiReady = false;
         this.updateSidebarLock();
         this.updateApiStatusDot('error');
+        this.switchModalTab('servers');
+        utils.toast('Sunucu kaydedildi ama bağlantı kurulamadı', 'warning');
       }
+
+      // Modal sunucu listesini güncelle
+      this.renderModalServerList();
     } catch (error) {
       utils.toast(error.message, 'error');
     } finally {
@@ -3089,57 +3241,80 @@ class WhatsAppBOTApp {
         console.log('SSE stream inactive but state says connected, restarting immediately...');
         this.startGlobalMessageStream();
         // Aynı zamanda API'den doğrula
-        const response = await api.getStatus();
-        if (response.success && response.data) {
-          if (!response.data.isConnected) {
-            // Bağlantı kopmuş
-            console.log('Connection lost detected in health check');
-            this.state.isConnected = false;
-            this.state.isConnecting = response.data.isConnecting || false;
-            this.state.sessionInfo = null;
+        try {
+          const response = await api.getStatus();
+          if (response.success && response.data) {
+            if (!response.data.isConnected) {
+              // Bağlantı kopmuş
+              console.log('Connection lost detected in health check');
+              this.state.isConnected = false;
+              this.state.isConnecting = response.data.isConnecting || false;
+              this.state.sessionInfo = null;
 
-            if (!response.data.isConnecting) {
-              this.resetConnectButton();
+              if (!response.data.isConnecting) {
+                this.resetConnectButton();
+              }
+
+              this.updateConnectionUI();
+              this.stopGlobalMessageStream();
+              utils.toast('WhatsApp bağlantısı kesildi', 'warning');
             }
-
-            this.updateConnectionUI();
-            this.stopGlobalMessageStream();
-            utils.toast('WhatsApp bağlantısı kesildi', 'warning');
           }
+        } catch (apiError) {
+          // Sunucu erişilemedi - bağlantıyı kopmuş olarak işaretle
+          console.error('API unreachable during health check:', apiError);
+          this.state.isConnected = false;
+          this.state.isConnecting = false;
+          this.state.apiReady = false;
+          this.updateConnectionUI();
+          this.stopGlobalMessageStream();
+          this.updateApiStatusDot('error');
+          utils.toast('Sunucu bağlantısı kesildi', 'error');
         }
         return;
       }
 
       // Bağlı görünüyor ve SSE aktif - periyodik doğrulama yap
       if (this.state.isConnected) {
-        const response = await api.getStatus();
-        if (response.success && response.data) {
-          if (!response.data.isConnected && this.state.isConnected) {
-            // Bağlantı kopmuş ama UI hala bağlı gösteriyor
-            console.log('Connection lost detected in health check');
-            this.state.isConnected = false;
-            this.state.isConnecting = response.data.isConnecting || false;
-            this.state.sessionInfo = null;
+        try {
+          const response = await api.getStatus();
+          if (response.success && response.data) {
+            if (!response.data.isConnected && this.state.isConnected) {
+              // Bağlantı kopmuş ama UI hala bağlı gösteriyor
+              console.log('Connection lost detected in health check');
+              this.state.isConnected = false;
+              this.state.isConnecting = response.data.isConnecting || false;
+              this.state.sessionInfo = null;
 
-            if (!response.data.isConnecting) {
-              this.resetConnectButton();
-            }
+              if (!response.data.isConnecting) {
+                this.resetConnectButton();
+              }
 
-            this.updateConnectionUI();
-            this.stopGlobalMessageStream();
-            utils.toast('WhatsApp bağlantısı kesildi', 'warning');
-          } else if (response.data.isConnected && !this.state.isConnected) {
-            // Bağlı ama state yanlış - düzelt
-            console.log('State out of sync, fixing...');
-            this.state.isConnected = true;
-            this.state.isConnecting = false;
-            this.state.sessionInfo = response.data.session;
-            this.updateConnectionUI();
+              this.updateConnectionUI();
+              this.stopGlobalMessageStream();
+              utils.toast('WhatsApp bağlantısı kesildi', 'warning');
+            } else if (response.data.isConnected && !this.state.isConnected) {
+              // Bağlı ama state yanlış - düzelt
+              console.log('State out of sync, fixing...');
+              this.state.isConnected = true;
+              this.state.isConnecting = false;
+              this.state.sessionInfo = response.data.session;
+              this.updateConnectionUI();
 
-            if (!api.isMessageStreamActive()) {
-              this.startGlobalMessageStream();
+              if (!api.isMessageStreamActive()) {
+                this.startGlobalMessageStream();
+              }
             }
           }
+        } catch (apiError) {
+          // Sunucu erişilemedi
+          console.error('API unreachable during periodic health check:', apiError);
+          this.state.isConnected = false;
+          this.state.isConnecting = false;
+          this.state.apiReady = false;
+          this.updateConnectionUI();
+          this.stopGlobalMessageStream();
+          this.updateApiStatusDot('error');
         }
       }
 

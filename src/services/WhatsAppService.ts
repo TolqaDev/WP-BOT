@@ -362,9 +362,24 @@ class WhatsAppService extends EventEmitter {
         clearTimeout(this.qrTimeout);
       }
 
-      await this.saveQRToFile(qr);
+      // Save QR file (non-critical, don't let it block event emission)
+      this.saveQRToFile(qr).catch(err => logger.warn({ error: err }, 'QR file save failed (non-critical)'));
 
-      const qrBase64 = await this.generateQRBase64WithLogo(qr);
+      let qrBase64: string;
+      try {
+        qrBase64 = await this.generateQRBase64WithLogo(qr);
+      } catch (logoError) {
+        // Fallback: generate basic QR without logo so the event is never lost
+        logger.warn({ error: logoError }, 'Logo QR generation failed, falling back to basic QR');
+        const qrBuffer = await QRCode.toBuffer(qr, {
+          errorCorrectionLevel: 'H',
+          type: 'png',
+          margin: 2,
+          width: 256,
+          color: { dark: '#000000', light: '#FFFFFF' },
+        });
+        qrBase64 = `data:image/png;base64,${qrBuffer.toString('base64')}`;
+      }
 
       this.state.qrCode = qrBase64;
       this.emit('qr', qrBase64);
@@ -1035,7 +1050,8 @@ class WhatsAppService extends EventEmitter {
     }
 
     if (!this.state.isConnecting) {
-      throw new Error('No connection attempt in progress');
+      logger.debug('cancelConnection called but no connection in progress, ignoring');
+      return;
     }
 
     logger.info('Cancelling connection attempt...');
@@ -1053,6 +1069,14 @@ class WhatsAppService extends EventEmitter {
 
     if (this.socket) {
       try {
+        // Remove event listeners BEFORE closing to prevent stale close events
+        // from interfering with new connections started after cancel
+        this.socket.ev.removeAllListeners('connection.update');
+        this.socket.ev.removeAllListeners('creds.update');
+        this.socket.ev.removeAllListeners('messages.upsert');
+        this.socket.ev.removeAllListeners('chats.upsert');
+        this.socket.ev.removeAllListeners('chats.update');
+        this.socket.ev.removeAllListeners('call');
         this.socket.end(undefined);
       } catch (error) {
         logger.warn({ error }, 'Error closing socket during cancel');
