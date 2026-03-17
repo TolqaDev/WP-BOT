@@ -12,6 +12,16 @@ import authMiddleware from '../middlewares/auth';
 
 const router = Router();
 
+// Health check — no auth required, accessible at /api/health
+router.get('/health', (_req, res) => {
+  res.status(200).json({
+    status: 'ok',
+    timestamp: new Date().toISOString(),
+    uptime: Math.floor(process.uptime()),
+    version: process.env.npm_package_version || '1.0.0',
+  });
+});
+
 router.use(authMiddleware);
 
 // SSE

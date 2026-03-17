@@ -51,7 +51,7 @@ class WhatsAppAPI {
   async init() {
     return new Promise((resolve) => {
       chrome.storage.local.get(['apiUrl', 'apiKey'], (result) => {
-        this.baseUrl = (result.apiUrl || 'http://localhost:3000/api').replace(/\/+$/, '');
+        this.baseUrl = (result.apiUrl || 'http://localhost:3000').replace(/\/api\/?$/, '').replace(/\/+$/, '');
         this.apiKey = result.apiKey || '';
         resolve();
       });
@@ -62,8 +62,8 @@ class WhatsAppAPI {
    * Save API settings
    */
   async saveSettings(url, key) {
-    // Remove trailing slash to prevent double-slash in endpoints
-    const normalizedUrl = url.replace(/\/+$/, '');
+    // Normalize: remove trailing slash and /api suffix to keep base URL clean
+    const normalizedUrl = url.replace(/\/api\/?$/, '').replace(/\/+$/, '');
     return new Promise((resolve) => {
       chrome.storage.local.set({ apiUrl: normalizedUrl, apiKey: key }, () => {
         this.baseUrl = normalizedUrl;
@@ -80,7 +80,7 @@ class WhatsAppAPI {
     return new Promise((resolve) => {
       chrome.storage.local.get(['apiUrl', 'apiKey'], (result) => {
         resolve({
-          apiUrl: result.apiUrl || 'http://localhost:3000/api',
+          apiUrl: (result.apiUrl || 'http://localhost:3000').replace(/\/api\/?$/, '').replace(/\/+$/, ''),
           apiKey: result.apiKey || ''
         });
       });
@@ -94,7 +94,7 @@ class WhatsAppAPI {
    * @returns {Promise<Object>} API response
    */
   async request(endpoint, options = {}) {
-    const url = `${this.baseUrl}${endpoint}`;
+    const url = `${this.baseUrl}/api${endpoint}`;
     const timeout = options.timeout || WhatsAppAPI.CONFIG.DEFAULT_TIMEOUT;
     const cacheKey = options.method === 'GET' ? `${options.method || 'GET'}:${url}` : null;
 
@@ -203,7 +203,7 @@ class WhatsAppAPI {
     }
 
     // SSE doesn't support custom headers, so we append API key as query param
-    let url = `${this.baseUrl}/auth/qr/stream`;
+    let url = `${this.baseUrl}/api/auth/qr/stream`;
     if (this.apiKey) {
       url += `?api_key=${encodeURIComponent(this.apiKey)}`;
     }
@@ -447,7 +447,7 @@ class WhatsAppAPI {
       return;
     }
 
-    let url = `${this.baseUrl}/messages/stream`;
+    let url = `${this.baseUrl}/api/messages/stream`;
     if (this.apiKey) {
       url += `?api_key=${encodeURIComponent(this.apiKey)}`;
     }
@@ -631,7 +631,7 @@ class WhatsAppAPI {
       return;
     }
 
-    let url = `${this.baseUrl}/messages/stream?jid=${encodeURIComponent(jid)}`;
+    let url = `${this.baseUrl}/api/messages/stream?jid=${encodeURIComponent(jid)}`;
     if (this.apiKey) {
       url += `&api_key=${encodeURIComponent(this.apiKey)}`;
     }
@@ -1036,7 +1036,7 @@ class WhatsAppAPI {
   startTerminalStream(onLog, onOpen, onError) {
     this.stopTerminalStream();
 
-    let url = `${this.baseUrl}/terminal/stream`;
+    let url = `${this.baseUrl}/api/terminal/stream`;
     if (this.apiKey) {
       url += `?api_key=${encodeURIComponent(this.apiKey)}`;
     }

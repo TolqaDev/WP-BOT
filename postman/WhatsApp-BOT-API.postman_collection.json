@@ -2,7 +2,7 @@
   "info": {
     "_postman_id": "whatsapp-bot-api-collection",
     "name": "WhatsApp BOT API",
-    "description": "WhatsApp BOT API v2.2 - Baileys ile oluşturulmuş MVC mimarisinde TypeScript API\n\n## Özellikler\n- QR ile oturum açma (SSE desteği)\n- Mesaj gönderme/alma (text, image, video, audio, document)\n- Toplu mesaj (gelişmiş kuyruk sistemi)\n- Zamanlanmış mesajlar\n- Otomatik arama reddi\n- Terminal log stream (SSE) - Geçmiş loglar + gerçek zamanlı\n- Session Persistence: PM2/sunucu yeniden başlatıldığında otomatik bağlanma\n- Settings via .env: Tüm ayarlar .env dosyasında kalıcı tutulur\n\n## Güvenlik\nTüm API endpoint'leri (health hariç) API Key gerektirir.\nHeader: X-API-Key: your_api_key veya Authorization: Bearer your_api_key\n\n## Session Yönetimi\n- Logout: Aktif oturum gerektirir (409 if no session)\n- PM2/Sunucu restart: Oturum korunur, otomatik bağlanır\n- hasSession: Status endpoint'inde kayıtlı oturum durumu",
+    "description": "WhatsApp BOT API v2 - Baileys ile oluşturulmuş MVC mimarisinde TypeScript API\n\n## Base URL Yapısı\n- Health check: {{baseUrl}}/health VEYA {{baseUrl}}/api/health\n- Tüm API endpoint'leri: {{baseUrl}}/api/...\n- baseUrl örnek: http://localhost:3000 (sonunda /api OLMADAN)\n\n## Özellikler\n- QR ile oturum açma (SSE desteği)\n- Mesaj gönderme/alma (text, image, video, audio, document)\n- Toplu mesaj (gelişmiş kuyruk sistemi)\n- Zamanlanmış mesajlar\n- Otomatik arama reddi\n- Terminal log stream (SSE) - Geçmiş loglar + gerçek zamanlı\n- Session Persistence: PM2/sunucu yeniden başlatıldığında otomatik bağlanma\n- Settings via .env: Tüm ayarlar .env dosyasında kalıcı tutulur\n\n## Güvenlik\nTüm API endpoint'leri (health hariç) API Key gerektirir.\nHeader: X-API-Key: your_api_key veya Authorization: Bearer your_api_key\n\n## Session Yönetimi\n- Logout: Aktif oturum gerektirir (409 if no session)\n- PM2/Sunucu restart: Oturum korunur, otomatik bağlanır\n- hasSession: Status endpoint'inde kayıtlı oturum durumu",
     "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json",
     "version": "2.0.0"
   },
@@ -24,13 +24,13 @@
       "name": "Health Check",
       "item": [
         {
-          "name": "Health Check",
+          "name": "Health Check (Root)",
           "request": {
             "auth": { "type": "noauth" },
             "method": "GET",
             "header": [],
             "url": { "raw": "{{baseUrl}}/health", "host": ["{{baseUrl}}"], "path": ["health"] },
-            "description": "Sunucu sağlık kontrolü. Authentication gerektirmez."
+            "description": "Sunucu sağlık kontrolü (root seviye). Authentication gerektirmez."
           },
           "response": []
         }

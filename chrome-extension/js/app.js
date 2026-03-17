@@ -1048,14 +1048,16 @@ class WhatsAppBOTApp {
    * Add or update a server in saved list
    */
   async addOrUpdateServer(url, key, name = null) {
+    // Normalize URL: strip /api suffix and trailing slashes
+    const normalizedUrl = url.replace(/\/api\/?$/, '').replace(/\/+$/, '');
     const servers = await this.getSavedServers();
-    const existing = servers.findIndex(s => s.url === url);
-    const serverName = name || new URL(url).hostname || 'Sunucu';
+    const existing = servers.findIndex(s => s.url === normalizedUrl);
+    const serverName = name || new URL(normalizedUrl).hostname || 'Sunucu';
 
     if (existing >= 0) {
-      servers[existing] = { ...servers[existing], url, key, name: serverName, updatedAt: Date.now() };
+      servers[existing] = { ...servers[existing], url: normalizedUrl, key, name: serverName, updatedAt: Date.now() };
     } else {
-      servers.push({ id: Date.now().toString(), url, key, name: serverName, createdAt: Date.now(), updatedAt: Date.now() });
+      servers.push({ id: Date.now().toString(), url: normalizedUrl, key, name: serverName, createdAt: Date.now(), updatedAt: Date.now() });
     }
 
     await this.saveServers(servers);
