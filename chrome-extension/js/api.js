@@ -231,7 +231,15 @@ class WhatsAppAPI {
       try {
         const data = JSON.parse(event.data);
 
-        if (data.type === 'qr' && data.qrCode) {
+        if (data.type === 'waiting') {
+          // Server is initializing connection, QR not ready yet
+          console.log('QR stream: waiting for QR code...');
+        } else if (data.type === 'error') {
+          // Server-side error during connection init
+          console.error('QR stream server error:', data.message);
+          if (onError) onError(new Error(data.message));
+          this.stopQRStream();
+        } else if (data.type === 'qr' && data.qrCode) {
           // QR geldiğinde bağlantı henüz kurulmadı demek
           isConnected = false;
           connectionStabilized = false;
@@ -377,6 +385,13 @@ class WhatsAppAPI {
   startMessageStream(onMessage, onInit, onError) {
     if (this.messageEventSource) {
       this.messageEventSource.close();
+    }
+
+    // Check connection state before starting SSE - server returns 503 if not connected
+    if (!this.lastKnownState.isConnected) {
+      console.warn('Message stream not started: WhatsApp is not connected');
+      if (onError) onError(new Error('WhatsApp is not connected'));
+      return;
     }
 
     let url = `${this.baseUrl}/messages/stream`;
@@ -542,6 +557,13 @@ class WhatsAppAPI {
   startChatStream(jid, onMessage, onInit, onError) {
     if (this.chatEventSource) {
       this.chatEventSource.close();
+    }
+
+    // Check connection state before starting SSE - server returns 503 if not connected
+    if (!this.lastKnownState.isConnected) {
+      console.warn('Chat stream not started: WhatsApp is not connected');
+      if (onError) onError(new Error('WhatsApp is not connected'));
+      return;
     }
 
     let url = `${this.baseUrl}/messages/stream?jid=${encodeURIComponent(jid)}`;
@@ -978,6 +1000,13 @@ class WhatsAppAPI {
       this.terminalEventSource.close();
       this.terminalEventSource = null;
     }
+  }
+
+  /**
+   * Clear server-side terminal log history
+   */
+  async clearTerminalLogs() {
+    return this.request('/terminal/logs', { method: 'DELETE' });
   }
 }
 

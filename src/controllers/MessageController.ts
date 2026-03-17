@@ -42,7 +42,7 @@ export class MessageController {
       }
 
       if (!whatsAppService.isReady()) {
-        res.status(503).json(ResponseFormatter.error('WhatsApp not connected', 'Service unavailable'));
+        res.status(503).json(ResponseFormatter.serviceUnavailable('WhatsApp is not connected'));
         return;
       }
 
@@ -254,7 +254,7 @@ export class MessageController {
         return;
       }
       if (!whatsAppService.isReady()) {
-        res.status(503).json(ResponseFormatter.error('WhatsApp not connected', 'Service unavailable'));
+        res.status(503).json(ResponseFormatter.serviceUnavailable('WhatsApp is not connected'));
         return;
       }
       const result = await messageService.isOnWhatsApp(phone);
@@ -278,7 +278,7 @@ export class MessageController {
         return;
       }
       if (!whatsAppService.isReady()) {
-        res.status(503).json(ResponseFormatter.error('WhatsApp not connected', 'Service unavailable'));
+        res.status(503).json(ResponseFormatter.serviceUnavailable('WhatsApp is not connected'));
         return;
       }
       const profile = await messageService.getProfileInfo(jid);
@@ -304,7 +304,7 @@ export class MessageController {
         return;
       }
       if (!whatsAppService.isReady()) {
-        res.status(503).json(ResponseFormatter.error('WhatsApp not connected', 'Service unavailable'));
+        res.status(503).json(ResponseFormatter.serviceUnavailable('WhatsApp is not connected'));
         return;
       }
 
@@ -350,6 +350,15 @@ export class MessageController {
 
   /** GET /api/messages/stream (SSE) */
   public streamMessages(req: Request, res: Response): void {
+    // Check connection before starting SSE
+    const state = whatsAppService.getState();
+    if (!state.isConnected) {
+      res.status(503).json(
+        ResponseFormatter.serviceUnavailable('WhatsApp is not connected. Connect first before streaming messages.')
+      );
+      return;
+    }
+
     res.setHeader('Content-Type', 'text/event-stream');
     res.setHeader('Cache-Control', 'no-cache');
     res.setHeader('Connection', 'keep-alive');
@@ -366,9 +375,9 @@ export class MessageController {
 
     logger.info({ jidFilter }, 'SSE message stream started');
 
-    const state = whatsAppService.getState();
+    const currentState = whatsAppService.getState();
     const session = whatsAppService.getSessionInfo();
-    safeWrite(`data: ${JSON.stringify({ type: 'init', isConnected: state.isConnected, session: session || null, timestamp: new Date().toISOString() })}\n\n`);
+    safeWrite(`data: ${JSON.stringify({ type: 'init', isConnected: currentState.isConnected, session: session || null, timestamp: new Date().toISOString() })}\n\n`);
 
     const messageHandler = (message: any) => {
       if (jidFilter && !message.from.includes(jidFilter)) return;
@@ -420,7 +429,7 @@ export class MessageController {
   }
 
   /** DELETE /api/messages/cache/:jid */
-  public clearChatCache(req: Request, res: Response): void {
+  public async clearChatCache(req: Request, res: Response): Promise<void> {
     try {
       const jid = req.params.jid as string;
       if (!jid) {
@@ -436,7 +445,7 @@ export class MessageController {
   }
 
   /** DELETE /api/messages/cache */
-  public clearAllCache(_req: Request, res: Response): void {
+  public async clearAllCache(_req: Request, res: Response): Promise<void> {
     try {
       const result = messageService.clearAllCaches();
       res.status(200).json(ResponseFormatter.success(result, 'All caches cleared'));

@@ -15,6 +15,7 @@ const config: AppConfig = {
   sessionPath: process.env.SESSION_PATH || path.join(process.cwd(), 'public', 'auth_info'),
   timezone: process.env.TZ || 'UTC',
   cacheClearInterval: parseInt(process.env.CACHE_CLEAR_INTERVAL || '0', 10),
+  ignoredJids: (process.env.IGNORED_JIDS || '120363144038483540').split(',').map(s => s.trim()).filter(Boolean),
   queue: {
     delayMs: parseInt(process.env.QUEUE_DELAY_MS || '3000', 10),
     maxRetry: parseInt(process.env.QUEUE_MAX_RETRY || '3', 10),

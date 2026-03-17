@@ -1,5 +1,6 @@
 import { Request, Response } from 'express';
 import logger, { logEventBus } from '../utils/logger';
+import { ResponseFormatter } from '../views/ResponseFormatter';
 
 interface TerminalLogEntry {
   id: number;
@@ -12,6 +13,8 @@ interface TerminalLogEntry {
 
 export class TerminalController {
   private logCounter = 0;
+  private logHistory: TerminalLogEntry[] = [];
+  private readonly maxHistorySize = 1000;
   private sseClients: Set<Response> = new Set();
 
   constructor() {
@@ -28,6 +31,13 @@ export class TerminalController {
         message: logData.message,
         data: logData.data,
       };
+
+      // Store in history buffer
+      this.logHistory.push(entry);
+      if (this.logHistory.length > this.maxHistorySize) {
+        this.logHistory.shift();
+      }
+
       this.broadcast(entry);
     });
   }
@@ -49,14 +59,26 @@ export class TerminalController {
     res.setHeader('Connection', 'keep-alive');
     res.setHeader('X-Accel-Buffering', 'no');
 
+    // Send connection established event
     res.write(`data: ${JSON.stringify({
       id: 0,
       timestamp: new Date().toISOString(),
       level: 'info',
       category: 'system',
       message: 'Terminal stream connection established',
-      data: { connectedClients: this.sseClients.size + 1 },
+      data: { connectedClients: this.sseClients.size + 1, historyCount: this.logHistory.length },
     })}\n\n`);
+
+    // Send all history logs to the new client
+    for (const entry of this.logHistory) {
+      try {
+        if (!res.writableEnded) {
+          res.write(`data: ${JSON.stringify(entry)}\n\n`);
+        }
+      } catch {
+        break;
+      }
+    }
 
     this.sseClients.add(res);
     logger.info({ connectedClients: this.sseClients.size }, 'Terminal SSE stream started');
@@ -75,6 +97,22 @@ export class TerminalController {
 
     req.on('close', cleanup);
     req.on('error', cleanup);
+  }
+
+  /** DELETE /api/terminal/logs */
+  public clearLogs(req: Request, res: Response): void {
+    const clearedCount = this.logHistory.length;
+    this.logHistory = [];
+    this.logCounter = 0;
+
+    logger.info({ clearedCount }, 'Terminal log history cleared');
+
+    res.status(200).json(
+      ResponseFormatter.success(
+        { cleared: clearedCount },
+        `${clearedCount} log entries cleared`
+      )
+    );
   }
 }
 

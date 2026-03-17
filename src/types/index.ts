@@ -301,6 +301,7 @@ export interface AppConfig {
   nodeEnv: string;
   sessionPath: string;
   timezone: string;
+  ignoredJids: string[];
   queue: QueueConfig;
   rateLimit: RateLimitConfig;
   security: SecurityConfig;

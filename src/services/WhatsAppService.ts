@@ -187,7 +187,12 @@ class WhatsAppService extends EventEmitter {
         markOnlineOnConnect: config.whatsapp.notify,
         syncFullHistory: true,
         fireInitQueries: true,
-        shouldIgnoreJid: (jid) => !jid || jid.endsWith('@g.us') || jid.endsWith('@broadcast'),
+        shouldIgnoreJid: (jid) => {
+          if (!jid) return true;
+          if (jid.endsWith('@g.us') || jid.endsWith('@broadcast')) return true;
+          // Check against ignored JIDs list
+          return config.ignoredJids.some(ignored => jid.includes(ignored));
+        },
         retryRequestDelayMs: 250,
         connectTimeoutMs: 30000,
         keepAliveIntervalMs: 25000,
@@ -286,6 +291,9 @@ class WhatsAppService extends EventEmitter {
 
           if (jid.endsWith('@g.us') || jid.endsWith('@broadcast')) continue;
 
+          // Skip ignored/suspended JIDs
+          if (config.ignoredJids.some(ignored => jid!.includes(ignored))) continue;
+
           const isLID = jid.endsWith('@lid');
           const msgKey = msg.key as any;
 
@@ -374,8 +382,8 @@ class WhatsAppService extends EventEmitter {
 
   private async generateQRBase64WithLogo(qr: string): Promise<string> {
     const qrSize = 256;
-    const logoSizePercent = 0.22;
-    const logoBackgroundPadding = 8;
+    const logoSizePercent = 0.16;
+    const logoBackgroundPadding = 6;
 
     const qrBuffer = await QRCode.toBuffer(qr, {
       errorCorrectionLevel: 'H',
@@ -458,8 +466,8 @@ class WhatsAppService extends EventEmitter {
       await this.deleteQRFile();
 
       const qrSize = 300;
-      const logoSizePercent = 0.22;
-      const logoBackgroundPadding = 10;
+      const logoSizePercent = 0.16;
+      const logoBackgroundPadding = 8;
 
       const qrBuffer = await QRCode.toBuffer(qr, {
         errorCorrectionLevel: 'H',

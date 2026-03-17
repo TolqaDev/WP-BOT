@@ -19,6 +19,9 @@ router.get('/auth/qr/stream', authController.streamQR.bind(authController));
 router.get('/messages/stream', messageController.streamMessages.bind(messageController));
 router.get('/terminal/stream', terminalController.streamTerminal.bind(terminalController));
 
+// Terminal
+router.delete('/terminal/logs', terminalController.clearLogs.bind(terminalController));
+
 // Auth
 router.get('/auth/qr', asyncHandler(authController.getQR.bind(authController)));
 router.get('/auth/qr/image', asyncHandler(authController.getQRImage.bind(authController)));
@@ -71,8 +74,8 @@ router.delete('/messages/scheduled/completed', messageController.clearCompletedS
 router.delete('/messages/scheduled/:id', messageController.cancelScheduledMessage.bind(messageController));
 
 // Cache
-router.delete('/messages/cache', messageController.clearAllCache.bind(messageController));
-router.delete('/messages/cache/:jid', messageController.clearChatCache.bind(messageController));
+router.delete('/messages/cache/:jid', asyncHandler(messageController.clearChatCache.bind(messageController)));
+router.delete('/messages/cache', asyncHandler(messageController.clearAllCache.bind(messageController)));
 
 // Bulk
 router.post(
@@ -93,6 +96,7 @@ router.delete('/bulk/completed', bulkController.clearCompleted.bind(bulkControll
 // Settings & Stats
 router.get('/settings', settingsController.getSettings.bind(settingsController));
 router.put('/settings', settingsController.updateSettings.bind(settingsController));
+router.post('/settings/reload', settingsController.reloadSettings.bind(settingsController));
 router.get('/stats', statsController.getStats.bind(statsController));
 
 export default router;

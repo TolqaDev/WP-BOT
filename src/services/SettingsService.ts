@@ -2,6 +2,7 @@ import config from '../config';
 import logger from '../utils/logger';
 import * as fs from 'fs';
 import * as path from 'path';
+import * as dotenv from 'dotenv';
 
 export interface RuntimeSettings {
   timezone: string;
@@ -15,10 +16,10 @@ class SettingsService {
   private static instance: SettingsService;
   private settings: RuntimeSettings;
   private autoCacheClearTimer: NodeJS.Timeout | null = null;
-  private readonly settingsFilePath: string;
+  private readonly envFilePath: string;
 
   private constructor() {
-    this.settingsFilePath = path.join(process.cwd(), 'public', 'settings.json');
+    this.envFilePath = path.join(process.cwd(), '.env');
 
     this.settings = {
       timezone: config.timezone,
@@ -28,7 +29,12 @@ class SettingsService {
       cacheClearInterval: config.cacheClearInterval,
     };
 
-    this.loadFromFile();
+    this.migrateFromLegacyFile();
+
+    if (this.settings.timezone) {
+      process.env.TZ = this.settings.timezone;
+    }
+
     logger.info({ settings: this.getSettings() }, 'SettingsService initialized');
     this.restartAutoCacheClear();
   }
@@ -102,8 +108,7 @@ class SettingsService {
       this.restartAutoCacheClear();
     }
 
-    this.saveToFile();
-    this.updateEnvFile();
+    this.saveToEnv();
 
     return this.getSettings();
   }
@@ -114,51 +119,87 @@ class SettingsService {
   public get timezone(): string { return this.settings.timezone; }
   public get cacheClearInterval(): number { return this.settings.cacheClearInterval; }
 
-  private loadFromFile(): void {
+  /**
+   * Reload settings from .env file (useful after external .env edits)
+   */
+  public reloadFromEnv(): RuntimeSettings {
     try {
-      if (fs.existsSync(this.settingsFilePath)) {
-        const raw = fs.readFileSync(this.settingsFilePath, 'utf-8');
-        const saved = JSON.parse(raw) as Partial<RuntimeSettings>;
+      const envContent = fs.readFileSync(this.envFilePath, 'utf-8');
+      const parsed = dotenv.parse(envContent);
 
-        if (saved.timezone !== undefined) {
-          try {
-            new Date().toLocaleString('tr-TR', { timeZone: saved.timezone });
-            this.settings.timezone = saved.timezone;
-            process.env.TZ = saved.timezone;
-          } catch { /* invalid timezone */ }
-        }
-        if (saved.autoRead !== undefined) this.settings.autoRead = saved.autoRead;
-        if (saved.notify !== undefined) this.settings.notify = saved.notify;
-        if (saved.callReject?.enabled !== undefined) {
-          this.settings.callReject.enabled = saved.callReject.enabled;
-        }
-        if (saved.cacheClearInterval !== undefined) {
-          this.settings.cacheClearInterval = saved.cacheClearInterval;
-        }
-
-        logger.info('Settings loaded from persistent file');
+      if (parsed.TZ) {
+        try {
+          new Date().toLocaleString('tr-TR', { timeZone: parsed.TZ });
+          this.settings.timezone = parsed.TZ;
+          process.env.TZ = parsed.TZ;
+        } catch { /* invalid timezone */ }
       }
+      if (parsed.AUTO_READ !== undefined) {
+        this.settings.autoRead = parsed.AUTO_READ.toLowerCase() === 'true';
+      }
+      if (parsed.NOTIFY !== undefined) {
+        this.settings.notify = parsed.NOTIFY.toLowerCase() === 'true';
+      }
+      if (parsed.AUTO_REJECT_CALLS !== undefined) {
+        this.settings.callReject.enabled = parsed.AUTO_REJECT_CALLS.toLowerCase() === 'true';
+      }
+      if (parsed.CACHE_CLEAR_INTERVAL !== undefined) {
+        this.settings.cacheClearInterval = parseInt(parsed.CACHE_CLEAR_INTERVAL, 10) || 0;
+      }
+
+      this.syncProcessEnv();
+      logger.info('Settings reloaded from .env file');
+      this.restartAutoCacheClear();
     } catch (error) {
-      logger.warn({ error }, 'Failed to load persisted settings, using defaults');
+      logger.warn({ error }, 'Failed to reload settings from .env');
+    }
+    return this.getSettings();
+  }
+
+  /**
+   * Migrate settings from legacy settings.json to .env (one-time)
+   */
+  private migrateFromLegacyFile(): void {
+    const legacyPath = path.join(process.cwd(), 'public', 'settings.json');
+    try {
+      if (!fs.existsSync(legacyPath)) return;
+
+      const raw = fs.readFileSync(legacyPath, 'utf-8');
+      const saved = JSON.parse(raw) as Partial<RuntimeSettings>;
+
+      if (saved.timezone !== undefined) {
+        try {
+          new Date().toLocaleString('tr-TR', { timeZone: saved.timezone });
+          this.settings.timezone = saved.timezone;
+          process.env.TZ = saved.timezone;
+        } catch { /* invalid timezone */ }
+      }
+      if (saved.autoRead !== undefined) this.settings.autoRead = saved.autoRead;
+      if (saved.notify !== undefined) this.settings.notify = saved.notify;
+      if (saved.callReject?.enabled !== undefined) {
+        this.settings.callReject.enabled = saved.callReject.enabled;
+      }
+      if (saved.cacheClearInterval !== undefined) {
+        this.settings.cacheClearInterval = saved.cacheClearInterval;
+      }
+
+      this.saveToEnv();
+      fs.unlinkSync(legacyPath);
+      logger.info('Migrated settings from settings.json to .env and removed legacy file');
+    } catch (error) {
+      logger.debug({ error }, 'No legacy settings.json migration needed');
     }
   }
 
-  private saveToFile(): void {
+  /**
+   * Persist current settings to .env file
+   */
+  private saveToEnv(): void {
     try {
-      const dir = path.dirname(this.settingsFilePath);
-      if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
-      fs.writeFileSync(this.settingsFilePath, JSON.stringify(this.settings, null, 2), 'utf-8');
-    } catch (error) {
-      logger.error({ error }, 'Failed to persist settings to file');
-    }
-  }
-
-  private updateEnvFile(): void {
-    try {
-      const envPath = path.join(process.cwd(), '.env');
-      if (!fs.existsSync(envPath)) return;
-
-      let envContent = fs.readFileSync(envPath, 'utf-8');
+      let envContent = '';
+      if (fs.existsSync(this.envFilePath)) {
+        envContent = fs.readFileSync(this.envFilePath, 'utf-8');
+      }
 
       const envUpdates: Record<string, string> = {
         'TZ': this.settings.timezone,
@@ -172,13 +213,28 @@ class SettingsService {
         const regex = new RegExp(`^${key}=.*$`, 'm');
         if (regex.test(envContent)) {
           envContent = envContent.replace(regex, `${key}=${value}`);
+        } else {
+          envContent = envContent.trimEnd() + `\n${key}=${value}`;
         }
       }
 
-      fs.writeFileSync(envPath, envContent, 'utf-8');
+      fs.writeFileSync(this.envFilePath, envContent.trim() + '\n', 'utf-8');
+      this.syncProcessEnv();
+      logger.debug('Settings persisted to .env file');
     } catch (error) {
-      logger.error({ error }, 'Failed to update .env file');
+      logger.error({ error }, 'Failed to persist settings to .env file');
     }
+  }
+
+  /**
+   * Sync current settings to process.env (runtime reload without restart)
+   */
+  private syncProcessEnv(): void {
+    process.env.TZ = this.settings.timezone;
+    process.env.AUTO_READ = String(this.settings.autoRead);
+    process.env.NOTIFY = String(this.settings.notify);
+    process.env.AUTO_REJECT_CALLS = String(this.settings.callReject.enabled);
+    process.env.CACHE_CLEAR_INTERVAL = String(this.settings.cacheClearInterval);
   }
 
   private restartAutoCacheClear(): void {

@@ -9,7 +9,7 @@ export const requireConnection = (
 ): void => {
   if (!whatsAppService.isReady()) {
     res.status(503).json(
-      ResponseFormatter.error('WhatsApp is not connected', 'Service unavailable')
+      ResponseFormatter.serviceUnavailable('WhatsApp is not connected')
     );
     return;
   }

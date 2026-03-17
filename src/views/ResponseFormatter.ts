@@ -43,6 +43,14 @@ export class ResponseFormatter {
     return this.error(details, 'Unauthorized');
   }
 
+  static conflict(details: string): ApiResponse<null> {
+    return this.error(details, 'Conflict');
+  }
+
+  static serviceUnavailable(details: string): ApiResponse<null> {
+    return this.error(details, 'Service unavailable');
+  }
+
   static serverError(details = 'An unexpected error occurred'): ApiResponse<null> {
     return this.error(details, 'Internal server error');
   }

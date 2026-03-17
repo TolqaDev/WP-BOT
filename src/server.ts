@@ -14,8 +14,17 @@ const SERVER_CONFIG = {
   HEADERS_TIMEOUT_MS: 66000,
 } as const;
 
+const getCorsOrigin = (): string | string[] | boolean => {
+  const corsOrigin = process.env.CORS_ORIGIN;
+  if (corsOrigin) {
+    if (corsOrigin === '*') return '*';
+    return corsOrigin.split(',').map(s => s.trim()).filter(Boolean);
+  }
+  return config.nodeEnv === 'production' ? false : '*';
+};
+
 const corsOptions = {
-  origin: '*',
+  origin: getCorsOrigin(),
   methods: ['GET', 'POST', 'DELETE', 'PUT', 'PATCH'],
   allowedHeaders: ['Content-Type', 'Authorization', 'X-API-Key'],
   credentials: true,
@@ -31,7 +40,7 @@ const helmetOptions = {
 export const createServer = (): Application => {
   const app = express();
 
-  app.set('trust proxy', 1);
+  app.set('trust proxy', process.env.TRUST_PROXY ? parseInt(process.env.TRUST_PROXY) || 1 : 1);
   app.use(helmet(helmetOptions));
   app.use(cors(corsOptions));
   app.use(express.json({ limit: SERVER_CONFIG.JSON_LIMIT }));

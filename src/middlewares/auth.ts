@@ -34,7 +34,7 @@ const initializeApiKeys = (): void => {
       lastUsedAt: null,
       isActive: true,
     });
-    logger.warn({ apiKey: generatedKey }, 'No API key configured! Using auto-generated key. Add API_KEY to .env');
+    logger.warn({ apiKeyPreview: `${generatedKey.substring(0, 8)}...${generatedKey.substring(generatedKey.length - 4)}` }, 'No API key configured! Auto-generated key created. Add API_KEY to .env');
   }
 };
 

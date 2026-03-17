@@ -120,14 +120,33 @@ export class AuthController {
     };
 
     const state = whatsAppService.getState();
+
+    // Already connected - send status and close
     if (state.isConnected) {
       safeWrite(`data: ${JSON.stringify({ type: 'connected', session: whatsAppService.getSessionInfo() })}\n\n`);
       safeEnd();
       return;
     }
 
-    if (state.qrCode) {
-      safeWrite(`data: ${JSON.stringify({ type: 'qr', qrCode: state.qrCode })}\n\n`);
+    // Send waiting status while connection initializes
+    safeWrite(`data: ${JSON.stringify({ type: 'waiting', message: 'Waiting for QR code...' })}\n\n`);
+
+    // Auto-start connection if not already connecting
+    if (!state.isConnecting) {
+      try {
+        await whatsAppService.connect();
+      } catch (error) {
+        logger.error({ error }, 'Failed to start connection from QR stream');
+        safeWrite(`data: ${JSON.stringify({ type: 'error', message: 'Failed to initialize connection' })}\n\n`);
+        safeEnd();
+        return;
+      }
+    }
+
+    // If QR is already available, send it immediately
+    const currentState = whatsAppService.getState();
+    if (currentState.qrCode) {
+      safeWrite(`data: ${JSON.stringify({ type: 'qr', qrCode: currentState.qrCode })}\n\n`);
     }
 
     const qrHandler = (qr: string) => {
@@ -207,6 +226,18 @@ export class AuthController {
   /** POST /api/auth/logout */
   public async logout(req: Request, res: Response): Promise<void> {
     try {
+      const state = whatsAppService.getState();
+
+      if (!state.isConnected && !state.isConnecting) {
+        const hasSession = await whatsAppService.hasExistingSession();
+        if (!hasSession) {
+          res.status(409).json(
+            ResponseFormatter.conflict('No active session to logout from')
+          );
+          return;
+        }
+      }
+
       await whatsAppService.disconnect();
       res.status(200).json(ResponseFormatter.noContent('Logged out successfully'));
     } catch (error) {

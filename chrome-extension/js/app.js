@@ -764,7 +764,13 @@ class WhatsAppBOTApp {
       utils.toast('Çıkış yapıldı', 'success');
     } catch (error) {
       console.error('Disconnect error:', error);
-      utils.toast(error.message, 'error');
+
+      // 409 = no active session to logout from
+      if (error.status === 409) {
+        utils.toast('Aktif oturum bulunamadı', 'warning');
+      } else {
+        utils.toast(error.message || 'Çıkış yapılamadı', 'error');
+      }
 
       // Hata durumunda da durumu güncelle
       this.state.isConnected = false;
@@ -1485,10 +1491,17 @@ class WhatsAppBOTApp {
     api.stopTerminalStream();
   }
 
-  clearTerminalOutput() {
+  async clearTerminalOutput() {
     const output = document.getElementById('terminal-output');
     if (output) {
       output.innerHTML = '<div class="terminal-empty"><i class="fas fa-terminal"></i><span>Log temizlendi</span></div>';
+    }
+
+    // Clear server-side log history
+    try {
+      await api.clearTerminalLogs();
+    } catch (error) {
+      console.error('Failed to clear server logs:', error);
     }
   }
 

@@ -66,6 +66,20 @@ export class SettingsController {
       res.status(500).json(ResponseFormatter.serverError('Failed to update settings'));
     }
   }
+  /** POST /api/settings/reload */
+  public reloadSettings(_req: Request, res: Response): void {
+    try {
+      const reloaded = settingsService.reloadFromEnv();
+      const timeInfo = settingsService.getTimeInfo();
+
+      res.status(200).json(
+        ResponseFormatter.success({ ...reloaded, time: timeInfo }, 'Settings reloaded from .env')
+      );
+    } catch (error) {
+      logger.error({ error }, 'Failed to reload settings');
+      res.status(500).json(ResponseFormatter.serverError('Failed to reload settings'));
+    }
+  }
 }
 
 export default new SettingsController();
