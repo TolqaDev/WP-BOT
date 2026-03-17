@@ -27,14 +27,13 @@ interface QueueEvents {
   itemFailed: (jobId: string, item: QueueItem) => void;
 }
 
-// Default timing settings
 const DEFAULT_TYPING_DURATION = 3000;
-const DEFAULT_MIN_DELAY = 5000;  // 5 seconds minimum between messages
-const DEFAULT_MAX_DELAY = 10000; // 10 seconds maximum between messages
-const MIN_ALLOWED_DELAY = 2000;  // Absolute minimum delay (spam protection)
-const BATCH_SIZE = 15;           // Take a longer break after this many messages
-const BATCH_BREAK_MIN = 30000;   // 30 seconds minimum batch break
-const BATCH_BREAK_MAX = 60000;   // 60 seconds maximum batch break
+const DEFAULT_MIN_DELAY = 5000;
+const DEFAULT_MAX_DELAY = 10000;
+const MIN_ALLOWED_DELAY = 2000;
+const BATCH_SIZE = 15;
+const BATCH_BREAK_MIN = 30000;
+const BATCH_BREAK_MAX = 60000;
 
 class QueueService extends EventEmitter {
   private static instance: QueueService;
@@ -81,7 +80,7 @@ class QueueService extends EventEmitter {
     const messageType: MessageType = payload.type || 'text';
 
     if (messageType === 'text') {
-      if (!payload.message || typeof payload.message !== 'string') {
+      if (!payload.message) {
         throw new Error('message field is required for text messages.');
       }
     } else {
@@ -166,7 +165,6 @@ class QueueService extends EventEmitter {
       return jid;
     }
 
-    // Normalize phone number
     let cleaned = jid.replace(/[^\d]/g, '');
     cleaned = cleaned.replace(/^0+/, '');
 
@@ -217,7 +215,6 @@ class QueueService extends EventEmitter {
     const startMinutes = startHour * 60 + startMinute;
     const endMinutes = endHour * 60 + endMinute;
 
-    // Handle overnight windows (e.g., 22:00 - 06:00)
     if (startMinutes > endMinutes) {
       return currentMinutes >= startMinutes || currentMinutes < endMinutes;
     }
@@ -255,11 +252,10 @@ class QueueService extends EventEmitter {
     if (currentMinutes < startMinutes) {
       minutesUntilStart = startMinutes - currentMinutes;
     } else {
-      // Next day
       minutesUntilStart = (24 * 60 - currentMinutes) + startMinutes;
     }
 
-    return minutesUntilStart * 60 * 1000; // Convert to milliseconds
+    return minutesUntilStart * 60 * 1000;
   }
 
   private scheduleJobStart(job: BulkJob): void {
@@ -268,7 +264,6 @@ class QueueService extends EventEmitter {
     const delay = job.scheduledAt.getTime() - Date.now();
 
     if (delay <= 0) {
-      // Should start immediately
       job.status = 'queued';
       this.startProcessing();
       return;
@@ -297,13 +292,12 @@ class QueueService extends EventEmitter {
       ? Math.round(((job.successCount + job.failedCount) / job.totalCount) * 100)
       : 0;
 
-    // Calculate average message time
     const times = this.processingTimes.get(jobId) || [];
+
     const averageMessageTime = times.length > 0
       ? Math.round(times.reduce((a, b) => a + b, 0) / times.length)
       : undefined;
 
-    // Estimate completion time
     let estimatedCompletionTime: string | undefined;
     if (job.status === 'processing' && averageMessageTime && job.pendingCount > 0) {
       const remainingMs = job.pendingCount * averageMessageTime;
@@ -368,7 +362,6 @@ class QueueService extends EventEmitter {
       const stat = this.getJobStats(jobId);
       if (stat) stats.push(stat);
     }
-    // Sort by creation date (newest first)
     return stats.sort((a, b) =>
       new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()
     );
@@ -419,14 +412,12 @@ class QueueService extends EventEmitter {
       return false;
     }
 
-    // Clear scheduled timer if exists
     const timer = this.scheduledTimers.get(jobId);
     if (timer) {
       clearTimeout(timer);
       this.scheduledTimers.delete(jobId);
     }
 
-    // Mark all pending items as failed
     for (const item of job.items) {
       if (item.status === 'pending') {
         item.status = 'failed';
@@ -451,10 +442,9 @@ class QueueService extends EventEmitter {
     if (!job) return false;
 
     if (job.status === 'processing') {
-      return false; // Can't delete while processing
+      return false;
     }
 
-    // Clear scheduled timer if exists
     const timer = this.scheduledTimers.get(jobId);
     if (timer) {
       clearTimeout(timer);
@@ -555,12 +545,10 @@ class QueueService extends EventEmitter {
 
   private getNextPendingItem(): { job: BulkJob; item: QueueItem } | null {
     for (const job of this.jobs.values()) {
-      // Skip non-active jobs
       if (job.status === 'cancelled' || job.status === 'completed' || job.status === 'scheduled') {
         continue;
       }
 
-      // Skip paused jobs (unless checking for window resume)
       if (job.isPaused && job.status === 'paused') {
         continue;
       }
@@ -576,23 +564,19 @@ class QueueService extends EventEmitter {
 
   private async processItem(job: BulkJob, item: QueueItem): Promise<void> {
     try {
-      // Send typing indicator
       try {
         await whatsAppService.sendPresenceUpdate(item.jid, 'composing');
         await this.delay(job.typingDuration);
         await whatsAppService.sendPresenceUpdate(item.jid, 'paused');
       } catch (typingError) {
-        // Ignore typing errors, continue with sending
         logger.debug({ error: typingError, jid: item.jid }, 'Failed to send typing indicator');
       }
 
       let result;
 
       if (item.type === 'text') {
-        // Send text message
         result = await whatsAppService.sendMessage(item.jid, item.message || '');
       } else {
-        // Send media message
         result = await whatsAppService.sendMedia(item.jid, {
           type: item.type,
           url: item.mediaUrl,
@@ -624,7 +608,6 @@ class QueueService extends EventEmitter {
       this.handleItemFailure(job, item, errorMessage);
     }
 
-    // Check if job is completed
     this.checkJobCompletion(job);
   }
 
@@ -647,7 +630,6 @@ class QueueService extends EventEmitter {
         retryCount: item.retryCount
       }, 'Bulk message failed after max retries');
     } else {
-      // Reset to pending for retry
       item.status = 'pending';
       logger.debug({
         jobId: job.jobId,
@@ -713,7 +695,6 @@ class QueueService extends EventEmitter {
       const now = Date.now();
 
       for (const job of this.jobs.values()) {
-        // Check scheduled jobs that should start
         if (job.status === 'scheduled' && job.scheduledAt && job.scheduledAt.getTime() <= now) {
           if (!this.scheduledTimers.has(job.jobId)) {
             logger.info({ jobId: job.jobId }, 'Starting scheduled bulk job');
@@ -722,7 +703,6 @@ class QueueService extends EventEmitter {
           }
         }
 
-        // Check paused jobs with time window that should resume
         if (job.status === 'paused' && job.timeWindow && job.pauseReason?.includes('time window')) {
           if (this.isWithinTimeWindow(job.timeWindow)) {
             logger.info({ jobId: job.jobId }, 'Time window opened, resuming job');
@@ -739,14 +719,12 @@ class QueueService extends EventEmitter {
       this.checkInterval = null;
     }
 
-    // Clear all scheduled timers
     for (const timer of this.scheduledTimers.values()) {
       clearTimeout(timer);
     }
     this.scheduledTimers.clear();
   }
 
-  // Type-safe event emitter
   public override on<K extends keyof QueueEvents>(
     event: K,
     listener: QueueEvents[K]

@@ -293,6 +293,7 @@ export class MessageController {
   public async sendTyping(req: Request, res: Response): Promise<void> {
     try {
       const jid = req.params.jid as string;
+      const type = (req.body.type as string) || 'composing';
       const duration = parseInt(req.body.duration as string) || 3000;
 
       if (!jid) {
@@ -308,8 +309,13 @@ export class MessageController {
         return;
       }
 
-      await messageService.sendTyping(jid, duration);
-      res.status(200).json(ResponseFormatter.success({ jid, duration }, 'Typing indicator sent'));
+      if (type === 'paused') {
+        await messageService.sendPresenceUpdate(jid, 'paused');
+        res.status(200).json(ResponseFormatter.success({ jid, type: 'paused' }, 'Typing indicator paused'));
+      } else {
+        await messageService.sendTyping(jid, duration);
+        res.status(200).json(ResponseFormatter.success({ jid, type: 'composing', duration }, 'Typing indicator sent'));
+      }
     } catch (error) {
       logger.error({ error }, 'Failed to send typing indicator');
       res.status(500).json(ResponseFormatter.serverError('Failed to send typing indicator'));
@@ -350,7 +356,6 @@ export class MessageController {
 
   /** GET /api/messages/stream (SSE) */
   public streamMessages(req: Request, res: Response): void {
-    // Check connection before starting SSE
     const state = whatsAppService.getState();
     if (!state.isConnected) {
       res.status(503).json(

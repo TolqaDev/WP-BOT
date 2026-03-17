@@ -149,7 +149,7 @@ class WhatsAppService extends EventEmitter {
       logger.debug('Cleaning up old socket before new connection');
       try {
         this.socket.end(undefined);
-      } catch { /* socket may already be closed */ }
+      } catch { }
       this.socket = null;
     }
 
@@ -190,7 +190,6 @@ class WhatsAppService extends EventEmitter {
         shouldIgnoreJid: (jid) => {
           if (!jid) return true;
           if (jid.endsWith('@g.us') || jid.endsWith('@broadcast')) return true;
-          // Check against ignored JIDs list
           return config.ignoredJids.some(ignored => jid.includes(ignored));
         },
         retryRequestDelayMs: 250,
@@ -291,7 +290,6 @@ class WhatsAppService extends EventEmitter {
 
           if (jid.endsWith('@g.us') || jid.endsWith('@broadcast')) continue;
 
-          // Skip ignored/suspended JIDs
           if (config.ignoredJids.some(ignored => jid!.includes(ignored))) continue;
 
           const isLID = jid.endsWith('@lid');
@@ -362,14 +360,12 @@ class WhatsAppService extends EventEmitter {
         clearTimeout(this.qrTimeout);
       }
 
-      // Save QR file (non-critical, don't let it block event emission)
-      this.saveQRToFile(qr).catch(err => logger.warn({ error: err }, 'QR file save failed (non-critical)'));
+      this.saveQRToFile(qr).catch(err => logger.warn({ error: err }, 'QR file save failed'));
 
       let qrBase64: string;
       try {
         qrBase64 = await this.generateQRBase64WithLogo(qr);
       } catch (logoError) {
-        // Fallback: generate basic QR without logo so the event is never lost
         logger.warn({ error: logoError }, 'Logo QR generation failed, falling back to basic QR');
         const qrBuffer = await QRCode.toBuffer(qr, {
           errorCorrectionLevel: 'H',
@@ -1022,7 +1018,7 @@ class WhatsAppService extends EventEmitter {
       }
       try {
         this.socket.end(undefined);
-      } catch { /* socket may already be closed */ }
+      } catch { }
       this.socket = null;
     }
 
@@ -1069,8 +1065,6 @@ class WhatsAppService extends EventEmitter {
 
     if (this.socket) {
       try {
-        // Remove event listeners BEFORE closing to prevent stale close events
-        // from interfering with new connections started after cancel
         this.socket.ev.removeAllListeners('connection.update');
         this.socket.ev.removeAllListeners('creds.update');
         this.socket.ev.removeAllListeners('messages.upsert');
@@ -1452,7 +1446,6 @@ class WhatsAppService extends EventEmitter {
       return;
     }
 
-    // Get unread messages from store
     const messages = this.store.messages.get(formattedJid) || [];
     const unreadKeys: { remoteJid: string; id: string; participant?: string }[] = [];
 

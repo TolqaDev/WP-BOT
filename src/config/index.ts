@@ -4,10 +4,6 @@ import type { AppConfig } from '../types';
 
 dotenv.config();
 
-const parseCorsWhiteList = (value: string | undefined): string[] => {
-  if (!value || value.trim() === '') return [];
-  return value.split(',').map(s => s.trim()).filter(s => s.length > 0);
-};
 
 const config: AppConfig = {
   port: parseInt(process.env.PORT || '3000', 10),

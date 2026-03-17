@@ -1,12 +1,7 @@
-/**
- * WhatsApp BOT Manager - Main Application
- * Redesigned for new UI/UX with SSE support
- */
-
 class WhatsAppBOTApp {
   constructor() {
     this.state = {
-      apiReady: false, // API bağlantısı doğrulandı mı
+      apiReady: false,
       isConnected: false,
       isConnecting: false,
       hasSession: false,
@@ -15,15 +10,13 @@ class WhatsAppBOTApp {
       currentChatJid: null,
       currentChatFilter: 'all',
       newChatJid: null,
-      messageType: 'single', // single or bulk
-      singleScheduleMode: 'now', // now or later
+      messageType: 'single',
+      singleScheduleMode: 'now',
       singleMessageType: 'text',
       unreadCount: 0,
       unreadChats: new Set()
     };
   }
-
-  // ==================== INITIALIZATION ====================
 
   async init() {
     try {
@@ -33,7 +26,6 @@ class WhatsAppBOTApp {
       utils.initTooltips();
       await this.loadSettings();
 
-      // API bağlantısını test et
       try {
         await this.checkConnection();
         this.state.apiReady = true;
@@ -46,6 +38,10 @@ class WhatsAppBOTApp {
         } else {
           this.showConnectionOverlay();
           this.updateApiStatusDot('connected');
+
+          if (this.state.isConnecting) {
+            this.connect();
+          }
         }
       } catch (connectionError) {
         console.error('Initial connection check failed:', connectionError);
@@ -62,7 +58,6 @@ class WhatsAppBOTApp {
       this.hideLoadingScreen();
       this.startAutoRefresh();
 
-      // Always start SSE message stream when connected - regardless of active tab
       if (this.state.isConnected) {
         this.startGlobalMessageStream();
       }
@@ -99,21 +94,15 @@ class WhatsAppBOTApp {
     document.getElementById('api-key').value = settings.apiKey;
   }
 
-  // ==================== EVENT LISTENERS ====================
-
   setupEventListeners() {
-    // Sidebar navigation
     document.querySelectorAll('.sidebar-nav-item[data-tab]').forEach(item => {
       item.addEventListener('click', () => this.switchTab(item.dataset.tab));
     });
 
-    // Theme toggle
     document.getElementById('theme-toggle')?.addEventListener('click', () => this.toggleTheme());
 
-    // Sidebar API settings button
     document.getElementById('sidebar-api-settings')?.addEventListener('click', () => this.openApiModal());
 
-    // API Settings Modal
     document.getElementById('api-settings-trigger')?.addEventListener('click', () => this.openApiModal());
     document.getElementById('api-modal-close')?.addEventListener('click', () => this.closeApiModal());
     document.getElementById('api-modal-backdrop')?.addEventListener('click', () => this.closeApiModal());
@@ -122,21 +111,17 @@ class WhatsAppBOTApp {
     document.getElementById('toggle-api-key')?.addEventListener('click', () => this.toggleApiKeyVisibility());
     document.getElementById('add-server-btn')?.addEventListener('click', () => this.openApiModal('add-server'));
 
-    // Modal tab switching
     document.querySelectorAll('.modal-tab[data-modal-tab]').forEach(tab => {
       tab.addEventListener('click', () => this.switchModalTab(tab.dataset.modalTab));
     });
 
-    // Dashboard - Server Settings
     document.getElementById('save-server-settings')?.addEventListener('click', () => this.saveServerSettings());
     document.getElementById('refresh-server-settings')?.addEventListener('click', () => this.loadServerSettings());
     document.getElementById('retry-server-settings')?.addEventListener('click', () => this.loadServerSettings());
 
-    // Cache management
     document.getElementById('chat-clear-cache-btn')?.addEventListener('click', () => this.clearCurrentChatCache());
     document.getElementById('clear-all-cache-btn')?.addEventListener('click', () => this.clearAllCachesAction());
 
-    // Terminal Log Popup
     document.getElementById('terminal-log-btn')?.addEventListener('click', () => this.openTerminalPopup());
     document.getElementById('terminal-close-btn')?.addEventListener('click', () => this.closeTerminalPopup());
     document.getElementById('terminal-clear-btn')?.addEventListener('click', () => this.clearTerminalOutput());
@@ -145,7 +130,6 @@ class WhatsAppBOTApp {
       if (output) output.scrollTop = output.scrollHeight;
     });
 
-    // Typing Duration slider (stored in addon as ms, displayed as seconds)
     document.getElementById('typing-duration')?.addEventListener('input', (e) => {
       const sec = parseInt(e.target.value);
       const label = document.getElementById('typing-duration-value');
@@ -157,7 +141,6 @@ class WhatsAppBOTApp {
         chrome.storage.local.set({ typingDuration: sec * 1000 });
       }
     });
-    // Load saved typing duration
     if (typeof chrome !== 'undefined' && chrome.storage) {
       chrome.storage.local.get(['typingDuration'], (result) => {
         const ms = result.typingDuration || 0;
@@ -169,13 +152,11 @@ class WhatsAppBOTApp {
       });
     }
 
-    // Sync PC time button
     document.getElementById('sync-pc-time')?.addEventListener('click', () => {
       const now = new Date();
       const tz = Intl.DateTimeFormat().resolvedOptions().timeZone;
       const timezoneSelect = document.getElementById('server-timezone');
       if (timezoneSelect) {
-        // Add timezone if not in list
         if (!timezoneSelect.querySelector(`option[value="${tz}"]`)) {
           const option = document.createElement('option');
           option.value = tz;
@@ -189,14 +170,11 @@ class WhatsAppBOTApp {
       utils.toast(`Saat dilimi ${tz} olarak ayarlandı`, 'success');
     });
 
-
-    // Connection
     document.getElementById('connect-btn').addEventListener('click', () => this.connect());
     document.getElementById('disconnect-btn').addEventListener('click', () => this.disconnect());
 
     document.getElementById('refresh-stats')?.addEventListener('click', () => this.loadStats());
 
-    // Chats Tab
     document.getElementById('chat-search').addEventListener('input',
       utils.debounce((e) => this.loadChats(e.target.value), 300)
     );
@@ -206,7 +184,6 @@ class WhatsAppBOTApp {
     document.getElementById('new-chat-btn').addEventListener('click', () => this.showNewChatPanel());
     document.getElementById('welcome-new-chat-btn').addEventListener('click', () => this.showNewChatPanel());
 
-    // New Chat Panel
     document.getElementById('new-chat-back-btn').addEventListener('click', () => this.hideNewChatPanel());
     document.getElementById('new-chat-check-btn').addEventListener('click', () => this.checkNewChatNumber());
     document.getElementById('start-chat-btn').addEventListener('click', () => this.startNewChat());
@@ -214,7 +191,6 @@ class WhatsAppBOTApp {
       if (e.key === 'Enter') this.checkNewChatNumber();
     });
 
-    // Active Chat
     document.getElementById('chat-back-btn').addEventListener('click', () => this.closeChat());
     document.getElementById('chat-close-btn').addEventListener('click', () => this.closeChat());
     document.getElementById('chat-send-btn').addEventListener('click', () => this.sendChatMessage());
@@ -225,19 +201,16 @@ class WhatsAppBOTApp {
       }
     });
 
-    // Auto-resize textarea
     const chatInput = document.getElementById('chat-message-input');
     chatInput.addEventListener('input', () => {
       chatInput.style.height = 'auto';
       chatInput.style.height = Math.min(chatInput.scrollHeight, 100) + 'px';
     });
 
-    // Messaging Tab - Tab Switch
     document.querySelectorAll('.messaging-tab').forEach(tab => {
       tab.addEventListener('click', () => this.switchMessageType(tab.dataset.type));
     });
 
-    // Single Message Form
     document.querySelectorAll('.schedule-option').forEach(opt => {
       opt.addEventListener('click', () => this.setScheduleMode(opt.dataset.schedule));
     });
@@ -250,24 +223,20 @@ class WhatsAppBOTApp {
       if (counter) counter.textContent = e.target.value.length;
     });
 
-    // Set min datetime
     const datetimeInput = document.getElementById('single-datetime');
     if (datetimeInput) {
       datetimeInput.min = utils.getMinScheduleDate();
-      // Focus'a geldiğinde min'i güncelle
       datetimeInput.addEventListener('focus', () => {
         datetimeInput.min = utils.getMinScheduleDate();
       });
     }
 
-    // Bulk Message Form - type selector buttons
     document.querySelectorAll('.type-option[data-bulk-type]').forEach(opt => {
       opt.addEventListener('click', () => this.setBulkMessageType(opt.dataset.bulkType));
     });
     document.getElementById('bulk-recipients').addEventListener('input', (e) => this.updateRecipientCount(e.target.value));
     document.getElementById('bulk-message').addEventListener('input', (e) => this.updateBulkCharCount(e.target.value));
 
-    // Bulk time window toggle buttons
     document.querySelectorAll('.schedule-option[data-time-window]').forEach(opt => {
       opt.addEventListener('click', () => {
         document.querySelectorAll('.schedule-option[data-time-window]').forEach(o => o.classList.remove('active'));
@@ -278,7 +247,6 @@ class WhatsAppBOTApp {
       });
     });
 
-    // Bulk schedule toggle buttons
     document.querySelectorAll('.schedule-option[data-bulk-schedule]').forEach(opt => {
       opt.addEventListener('click', () => {
         document.querySelectorAll('.schedule-option[data-bulk-schedule]').forEach(o => o.classList.remove('active'));
@@ -299,46 +267,31 @@ class WhatsAppBOTApp {
       });
     });
 
-    // Bulk datetime focus'ta min güncelle
     document.getElementById('bulk-start-datetime')?.addEventListener('focus', (e) => {
       e.target.min = utils.getMinScheduleDate();
     });
     document.getElementById('bulk-send-btn').addEventListener('click', () => this.handleBulkSend());
-
-
-    // Refresh buttons
-    document.getElementById('refresh-jobs').addEventListener('click', () => this.loadBulkJobs());
-    document.getElementById('refresh-scheduled').addEventListener('click', () => this.loadScheduledMessages());
-    document.getElementById('clear-completed-scheduled').addEventListener('click', () => this.clearCompletedScheduled());
-    document.getElementById('clear-completed-bulk')?.addEventListener('click', () => this.clearCompletedBulk());
   }
 
-  // ==================== TAB SWITCHING ====================
-
   switchTab(tabId) {
-    // API bağlantısı yoksa hiçbir tab'a izin verme
     if (!this.state.apiReady) {
       utils.toast('Önce API bağlantısını yapılandırın', 'warning');
       return;
     }
 
-    // WhatsApp bağlı değilse hiçbir tab'a izin verme
     if (!this.state.isConnected) {
       utils.toast('WhatsApp bağlı değil. Önce bağlantı kurun.', 'warning');
       return;
     }
 
-    // Update sidebar nav
     document.querySelectorAll('.sidebar-nav-item[data-tab]').forEach(item => {
       item.classList.toggle('active', item.dataset.tab === tabId);
     });
 
-    // Update content
     document.querySelectorAll('.tab-content').forEach(tab => {
       tab.classList.toggle('active', tab.id === `tab-${tabId}`);
     });
 
-    // Update page title
     const titles = {
       'chats': 'Sohbetler',
       'messaging': 'Mesaj Gönderimi',
@@ -348,13 +301,10 @@ class WhatsAppBOTApp {
 
     this.state.currentTab = tabId;
 
-    // Stop chat-specific SSE stream when leaving chats tab to prevent read receipts
-    // Also close the chat detail view so it resets properly
     if (tabId !== 'chats' && this.state.currentChatJid) {
       this.closeChat();
     }
 
-    // Load tab data
     switch (tabId) {
       case 'chats':
         this.loadChats();
@@ -368,8 +318,6 @@ class WhatsAppBOTApp {
         break;
     }
   }
-
-  // ==================== CONNECTION ====================
 
   async checkConnection() {
     try {
@@ -387,10 +335,8 @@ class WhatsAppBOTApp {
           await this.loadDashboardData();
           await this.loadChats();
         } else if (response.data.hasSession && !response.data.isConnecting) {
-          // Kayıtlı oturum var ama bağlı değil - otomatik bağlanıyor olabilir
           this.updateLoadingStatus('Kayıtlı oturum bulundu, bağlanıyor...');
 
-          // Birkaç saniye bekleyip tekrar kontrol et
           await new Promise(resolve => setTimeout(resolve, 3000));
 
           const retryResponse = await api.getStatus();
@@ -404,12 +350,10 @@ class WhatsAppBOTApp {
               await this.loadDashboardData();
               await this.loadChats();
             } else if (retryResponse.data.isConnecting) {
-              // Hala bağlanıyor - UI bunu gösterecek
               this.updateLoadingStatus('Bağlanıyor...');
             }
           }
         } else if (response.data.isConnecting) {
-          // Aktif bağlantı girişimi var
           this.updateLoadingStatus('Bağlanıyor...');
         }
       }
@@ -425,8 +369,6 @@ class WhatsAppBOTApp {
   updateConnectionUI() {
     const { isConnected, isConnecting, sessionInfo } = this.state;
 
-
-    // Connection badge in header
     const badge = document.getElementById('connection-status');
     const badgeText = badge.querySelector('.badge-text');
     badge.classList.remove('connected', 'connecting', 'disconnected');
@@ -435,7 +377,6 @@ class WhatsAppBOTApp {
       badge.classList.add('connected');
       badgeText.textContent = 'Bağlı';
 
-      // Start global message stream when connected
       if (!api.isMessageStreamActive()) {
         this.startGlobalMessageStream();
       }
@@ -443,7 +384,6 @@ class WhatsAppBOTApp {
       badge.classList.add('connecting');
       badgeText.textContent = 'Bağlanıyor...';
 
-      // Bağlanırken connect butonunu disable yap
       const connectBtn = document.getElementById('connect-btn');
       if (connectBtn && !connectBtn.disabled) {
         connectBtn.disabled = true;
@@ -453,22 +393,18 @@ class WhatsAppBOTApp {
       badge.classList.add('disconnected');
       badgeText.textContent = 'Bağlı Değil';
 
-      // Stop streams when disconnected
       this.stopGlobalMessageStream();
       this.stopChatStream();
 
-      // Connect butonunu resetle
       this.resetConnectButton();
     }
 
-    // Connection overlay
     if (isConnected) {
       this.hideConnectionOverlay();
     } else {
       this.showConnectionOverlay();
     }
 
-    // Dashboard connected view
     const connectedView = document.getElementById('dashboard-connected-view');
     const qrPlaceholder = document.getElementById('qr-placeholder');
     const qrImage = document.getElementById('qr-image');
@@ -481,11 +417,9 @@ class WhatsAppBOTApp {
         document.getElementById('session-phone').textContent = utils.formatPhone(sessionInfo.phone);
       }
 
-      // Update API info display in connected dashboard
       this.updateApiInfoDisplay();
       this.updateApiStatusDot('connected');
 
-      // Bağlandığında sunucu ayarlarını yükle
       this.loadServerSettings();
     } else {
       utils.hide(connectedView);
@@ -497,12 +431,10 @@ class WhatsAppBOTApp {
       }
     }
 
-    // Sidebar kilit durumunu güncelle
     this.updateSidebarLock();
   }
 
   async connect() {
-    // Check if any API server is configured
     const servers = await this.getSavedServers();
     if (servers.length === 0 && !this.state.apiReady) {
       utils.toast('Önce bir sunucu eklemeniz gerekiyor', 'warning');
@@ -510,17 +442,14 @@ class WhatsAppBOTApp {
       return;
     }
 
-    // Sunucu erişilebilirlik ön-kontrolü - sunucu kapalıysa SSE başlatma
     let preCheckStatus = null;
     try {
       const preCheckResponse = await api.getStatus();
       if (preCheckResponse.success && preCheckResponse.data) {
         preCheckStatus = preCheckResponse.data;
-        // Ön-kontrol başarılı - apiReady'i güncelle (önceki hatadan false kalmış olabilir)
         this.state.apiReady = true;
         this.updateApiStatusDot('connected');
 
-        // Zaten bağlıysa QR stream başlatmaya gerek yok
         if (preCheckStatus.isConnected) {
           this.state.isConnected = true;
           this.state.isConnecting = false;
@@ -553,13 +482,10 @@ class WhatsAppBOTApp {
       connectBtn.disabled = true;
       connectBtn.innerHTML = '<span class="spinner"></span> Bağlanıyor...';
 
-      // Bağlantı stabilizasyon kontrolü için flag
       let connectionReceived = false;
       let stabilizationCheckTimer = null;
 
-      // Start QR stream (SSE only - REST fallback removed to prevent race conditions)
       api.startQRStream(
-        // onQR
         (qrCode) => {
           const qrImg = document.getElementById('qr-image');
           const qrPlaceholder = document.getElementById('qr-placeholder');
@@ -567,16 +493,13 @@ class WhatsAppBOTApp {
           qrImg.classList.remove('hidden');
           utils.hide(qrPlaceholder);
 
-          // QR gösteriliyorsa hala bağlanıyor demek
           this.state.isConnecting = true;
           this.state.isConnected = false;
         },
-        // onConnected
         async (session) => {
           console.log('QR Stream connected event received:', session);
           connectionReceived = true;
 
-          // İlk olarak UI'ı bağlanıyor olarak güncelle
           this.state.isConnecting = true;
           this.state.isConnected = false;
           this.state.sessionInfo = session;
@@ -589,14 +512,11 @@ class WhatsAppBOTApp {
 
           utils.toast('WhatsApp senkronize ediliyor, lütfen bekleyin...', 'info');
 
-          // WhatsApp bağlandıktan sonra senkronizasyon bekletmesi olabilir (515 error)
-          // Bunun için 5-10 saniye içinde durumu kontrol et
           const checkStability = async (attempt = 1) => {
             try {
               const statusResponse = await api.getStatus();
               if (statusResponse.success && statusResponse.data) {
                 if (statusResponse.data.isConnected) {
-                  // Gerçekten bağlandı!
                   this.state.isConnecting = false;
                   this.state.isConnected = true;
                   this.state.sessionInfo = statusResponse.data.session || session;
@@ -610,12 +530,10 @@ class WhatsAppBOTApp {
                   this.loadChats();
                   return true;
                 } else if (statusResponse.data.isConnecting && attempt < 6) {
-                  // Hala bağlanıyor - bekle ve tekrar kontrol et
                   console.log(`Still connecting, attempt ${attempt}/6, checking again in 3s...`);
                   setTimeout(() => checkStability(attempt + 1), 3000);
                   return false;
                 } else {
-                  // Bağlantı başarısız
                   console.log('Connection failed after multiple checks');
                   this.state.isConnecting = false;
                   this.state.isConnected = false;
@@ -638,14 +556,10 @@ class WhatsAppBOTApp {
             return false;
           };
 
-          // İlk kontrol 3 saniye sonra
           stabilizationCheckTimer = setTimeout(() => checkStability(1), 3000);
         },
-        // onError
         (error) => {
           console.error('QR Stream error:', error);
-          // SSE hatası aldık ama bağlantı gerçekleşmiş olabilir
-          // connectionReceived true ise, stabilization check devam edecek
           if (!connectionReceived) {
             this.state.isConnecting = false;
             this.state.isConnected = false;
@@ -654,11 +568,9 @@ class WhatsAppBOTApp {
             utils.toast(error.message || 'Bağlantı hatası', 'error');
           }
         },
-        // onDisconnected
         (reason) => {
           console.log('QR Stream disconnected:', reason);
 
-          // Eğer bağlantı sağlandıysa ve senkronizasyon devam ediyorsa, görmezden gel
           if (connectionReceived && this.state.isConnecting) {
             console.log('Ignoring disconnect during stabilization');
             return;
@@ -670,10 +582,8 @@ class WhatsAppBOTApp {
           this.resetConnectButton();
 
           if (reason && reason !== 'Connection cancelled by user') {
-            // API'den gerçek durumu kontrol et
             api.getStatus().then(response => {
               if (response.success && response.data?.isConnected) {
-                // Aslında bağlı!
                 this.state.isConnected = true;
                 this.state.sessionInfo = response.data.session;
                 this.updateConnectionUI();
@@ -686,7 +596,6 @@ class WhatsAppBOTApp {
             });
           }
         },
-        // onTimeout
         () => {
           console.log('QR Stream timeout');
           this.state.isConnecting = false;
@@ -694,7 +603,6 @@ class WhatsAppBOTApp {
           this.resetConnectButton();
           utils.toast('QR kod süresi doldu. Tekrar deneyin.', 'warning');
         },
-        // onReconnecting
         (data) => {
           console.log('QR Stream reconnecting:', data);
           this.state.isConnecting = true;
@@ -706,7 +614,6 @@ class WhatsAppBOTApp {
             connectBtn.innerHTML = `<span class="spinner"></span> Yeniden bağlanıyor (${data.attempt})...`;
           }
 
-          // QR placeholder'da bilgi göster
           const qrPlaceholder = document.getElementById('qr-placeholder');
           if (qrPlaceholder) {
             qrPlaceholder.innerHTML = `
@@ -729,9 +636,6 @@ class WhatsAppBOTApp {
     }
   }
 
-  /**
-   * Reset connect button to default state
-   */
   resetConnectButton() {
     const connectBtn = document.getElementById('connect-btn');
     if (connectBtn) {
@@ -746,7 +650,6 @@ class WhatsAppBOTApp {
     try {
       utils.setLoading('disconnect-btn', true, 'Çıkış...');
 
-      // Önce tüm stream'leri durdur
       this.stopGlobalMessageStream();
       this.stopChatStream();
       api.stopQRStream();
@@ -758,10 +661,8 @@ class WhatsAppBOTApp {
       this.state.sessionInfo = null;
       this.state.hasSession = false;
 
-      // Connect butonunu resetle
       this.resetConnectButton();
 
-      // QR placeholder'ı göster, image'ı gizle
       const qrImg = document.getElementById('qr-image');
       const qrPlaceholder = document.getElementById('qr-placeholder');
       if (qrImg) {
@@ -777,14 +678,12 @@ class WhatsAppBOTApp {
     } catch (error) {
       console.error('Disconnect error:', error);
 
-      // 409 = no active session to logout from
       if (error.status === 409) {
         utils.toast('Aktif oturum bulunamadı', 'warning');
       } else {
         utils.toast(error.message || 'Çıkış yapılamadı', 'error');
       }
 
-      // Hata durumunda da durumu güncelle
       this.state.isConnected = false;
       this.state.isConnecting = false;
       this.state.hasSession = false;
@@ -792,7 +691,6 @@ class WhatsAppBOTApp {
 
       this.resetConnectButton();
 
-      // QR alanını resetle
       const qrImg = document.getElementById('qr-image');
       const qrPlaceholder = document.getElementById('qr-placeholder');
       if (qrImg) {
@@ -807,30 +705,16 @@ class WhatsAppBOTApp {
     }
   }
 
-  // ==================== SETTINGS ====================
-
-  // ==================== CONNECTION OVERLAY & API MODAL ====================
-
-  /**
-   * Show connection overlay (full-screen QR view)
-   */
   showConnectionOverlay() {
     const overlay = document.getElementById('connection-overlay');
     if (overlay) overlay.classList.add('active');
   }
 
-  /**
-   * Hide connection overlay
-   */
   hideConnectionOverlay() {
     const overlay = document.getElementById('connection-overlay');
     if (overlay) overlay.classList.remove('active');
   }
 
-  /**
-   * Open API settings modal with animation
-   * @param {string} tab - 'servers' or 'add-server'
-   */
   openApiModal(tab = 'servers', prefillData = null) {
     const backdrop = document.getElementById('api-modal-backdrop');
     const modal = document.getElementById('api-modal');
@@ -839,16 +723,13 @@ class WhatsAppBOTApp {
     backdrop.classList.remove('hidden');
     modal.classList.remove('hidden');
 
-    // Trigger animation after DOM update
     requestAnimationFrame(() => {
       backdrop.classList.add('visible');
       modal.classList.add('visible');
     });
 
-    // Switch to requested tab (this clears the form if add-server)
     this.switchModalTab(tab);
 
-    // Pre-fill form data AFTER clearing (for edit mode)
     if (prefillData) {
       const urlInput = document.getElementById('api-url');
       const keyInput = document.getElementById('api-key');
@@ -856,16 +737,11 @@ class WhatsAppBOTApp {
       if (keyInput) keyInput.value = prefillData.key || '';
     }
 
-    // Update modal status dot
     this.updateApiModalStatus();
 
-    // Render saved servers in modal
     this.renderModalServerList();
   }
 
-  /**
-   * Switch modal tabs
-   */
   switchModalTab(tabName) {
     document.querySelectorAll('.modal-tab').forEach(t => t.classList.remove('active'));
     document.querySelectorAll('.modal-tab-content').forEach(c => c.classList.remove('active'));
@@ -875,15 +751,11 @@ class WhatsAppBOTApp {
     if (tab) tab.classList.add('active');
     if (content) content.classList.add('active');
 
-    // Clear add-server form inputs when switching to that tab
     if (tabName === 'add-server') {
       this.clearAddServerForm();
     }
   }
 
-  /**
-   * Clear add-server form inputs
-   */
   clearAddServerForm() {
     const urlInput = document.getElementById('api-url');
     const keyInput = document.getElementById('api-key');
@@ -891,9 +763,6 @@ class WhatsAppBOTApp {
     if (keyInput) keyInput.value = '';
   }
 
-  /**
-   * Close API settings modal with animation
-   */
   closeApiModal() {
     const backdrop = document.getElementById('api-modal-backdrop');
     const modal = document.getElementById('api-modal');
@@ -908,9 +777,6 @@ class WhatsAppBOTApp {
     }, 300);
   }
 
-  /**
-   * Update API modal status indicator
-   */
   updateApiModalStatus() {
     const dot = document.getElementById('api-modal-status-dot');
     const text = document.getElementById('api-modal-status-text');
@@ -927,13 +793,9 @@ class WhatsAppBOTApp {
     }
   }
 
-  /**
-   * Clear API settings from storage and reset UI
-   */
   async clearApiSettings() {
     if (!await utils.showConfirm('API bağlantı bilgileri silinecek. Devam etmek istiyor musunuz?')) return;
 
-    // Clear from chrome storage
     if (typeof chrome !== 'undefined' && chrome.storage) {
       chrome.storage.local.remove(['apiUrl', 'apiKey'], () => {
         utils.toast('API bilgileri temizlendi', 'success');
@@ -944,44 +806,32 @@ class WhatsAppBOTApp {
       utils.toast('API bilgileri temizlendi', 'success');
     }
 
-    // Clear input fields
     const urlInput = document.getElementById('api-url');
     const keyInput = document.getElementById('api-key');
     if (urlInput) urlInput.value = '';
     if (keyInput) keyInput.value = '';
 
-    // Reset API state
     this.state.apiReady = false;
     this.state.isConnected = false;
     api.baseUrl = '';
     api.apiKey = '';
 
-    // Stop all active streams
     this.stopGlobalMessageStream();
     this.stopChatStream();
 
-    // Update status dot
     this.updateApiStatusDot('');
 
-    // Update connection UI
     this.updateConnectionUI();
 
-    // Update sidebar locks
     this.updateSidebarLock();
 
-    // Show connection overlay
     this.showConnectionOverlay();
 
-    // Close modal if open and reopen for re-entry
     this.closeApiModal();
     setTimeout(() => this.openApiModal(), 400);
   }
 
-  /**
-   * Update the API status dot indicator
-   */
   updateApiStatusDot(status) {
-    // Update trigger button dot
     const triggerDot = document.getElementById('api-trigger-dot');
     if (triggerDot) {
       triggerDot.classList.remove('connected', 'error');
@@ -989,7 +839,6 @@ class WhatsAppBOTApp {
       else if (status === 'error') triggerDot.classList.add('error');
     }
 
-    // Update modal status dot
     const modalDot = document.getElementById('api-modal-status-dot');
     const modalText = document.getElementById('api-modal-status-text');
     if (modalDot) {
@@ -1006,17 +855,11 @@ class WhatsAppBOTApp {
     }
   }
 
-  /**
-   * Update API info display - render server lists in dashboard and modal
-   */
   updateApiInfoDisplay() {
     this.renderServerList();
     this.renderModalServerList();
   }
 
-  /**
-   * Load saved servers from storage
-   */
   async getSavedServers() {
     return new Promise((resolve) => {
       if (typeof chrome !== 'undefined' && chrome.storage) {
@@ -1030,9 +873,6 @@ class WhatsAppBOTApp {
     });
   }
 
-  /**
-   * Save servers to storage
-   */
   async saveServers(servers) {
     return new Promise((resolve) => {
       if (typeof chrome !== 'undefined' && chrome.storage) {
@@ -1044,11 +884,7 @@ class WhatsAppBOTApp {
     });
   }
 
-  /**
-   * Add or update a server in saved list
-   */
   async addOrUpdateServer(url, key, name = null) {
-    // Normalize URL: strip /api suffix and trailing slashes
     const normalizedUrl = url.replace(/\/api\/?$/, '').replace(/\/+$/, '');
     const servers = await this.getSavedServers();
     const existing = servers.findIndex(s => s.url === normalizedUrl);
@@ -1064,16 +900,12 @@ class WhatsAppBOTApp {
     this.updateApiInfoDisplay();
   }
 
-  /**
-   * Remove server from saved list
-   */
   async removeServer(serverId) {
     if (!await utils.showConfirm('Bu sunucuyu listeden kaldırmak istiyor musunuz?')) return;
     const servers = await this.getSavedServers();
     const filtered = servers.filter(s => s.id !== serverId);
     await this.saveServers(filtered);
 
-    // If removing active server, clear connection
     const removed = servers.find(s => s.id === serverId);
     if (removed && removed.url === api.baseUrl) {
       this.clearApiSettings();
@@ -1082,37 +914,29 @@ class WhatsAppBOTApp {
     }
   }
 
-  /**
-   * Switch to a different server
-   */
   async switchServer(serverId) {
     const servers = await this.getSavedServers();
     const server = servers.find(s => s.id === serverId);
     if (!server) return;
 
-    // Stop current streams
     this.stopGlobalMessageStream();
     this.stopChatStream();
     api.stopQRStream();
 
-    // Update API settings
     await api.saveSettings(server.url, server.key);
 
-    // Test connection
     try {
       await this.checkConnection();
       this.state.apiReady = true;
       this.updateSidebarLock();
 
       if (this.state.isConnected) {
-        // WP bağlı — modal kapat, uygulamaya geç
         this.closeApiModal();
         this.hideConnectionOverlay();
         this.switchTab('chats');
         this.updateApiStatusDot('connected');
         utils.toast(`${server.name} sunucusuna bağlandı`, 'success');
       } else {
-        // Sunucu erişilebilir ama WP bağlı değil — modal kapat, bağlantı ekranını göster
         this.closeApiModal();
         this.showConnectionOverlay();
         this.updateApiStatusDot('connected');
@@ -1120,21 +944,16 @@ class WhatsAppBOTApp {
         utils.toast(`${server.name} API bağlı, WhatsApp bağlantısı bekleniyor`, 'info');
       }
     } catch (e) {
-      // Sunucu erişilemiyor — modal açık kalsın, hata göster
       this.state.apiReady = false;
       this.updateSidebarLock();
       this.updateApiStatusDot('error');
       utils.toast(`${server.name} sunucusuna bağlanılamadı`, 'error');
     }
 
-    // Modal'daki sunucu listesini güncelle (aktif sunucu değişti)
     this.renderModalServerList();
     this.updateApiInfoDisplay();
   }
 
-  /**
-   * Render server list in dashboard
-   */
   async renderServerList() {
     const container = document.getElementById('server-list');
     if (!container) return;
@@ -1142,10 +961,9 @@ class WhatsAppBOTApp {
     const servers = await this.getSavedServers();
     const currentUrl = api.baseUrl;
 
-    // Ensure current active server is in the list
     if (currentUrl && !servers.find(s => s.url === currentUrl)) {
       await this.addOrUpdateServer(currentUrl, api.apiKey);
-      return; // addOrUpdateServer calls updateApiInfoDisplay which calls this again
+      return;
     }
 
     if (servers.length === 0) {
@@ -1177,7 +995,6 @@ class WhatsAppBOTApp {
         </div>`;
     }).join('');
 
-    // Event listeners
     container.querySelectorAll('.server-switch-btn').forEach(btn => {
       btn.addEventListener('click', (e) => { e.stopPropagation(); this.switchServer(btn.dataset.id); });
     });
@@ -1196,9 +1013,6 @@ class WhatsAppBOTApp {
     });
   }
 
-  /**
-   * Render server list in API modal - click to switch, drag to reorder
-   */
   async renderModalServerList() {
     const container = document.getElementById('modal-server-list');
     if (!container) return;
@@ -1233,7 +1047,6 @@ class WhatsAppBOTApp {
         </div>`;
     }).join('');
 
-    // Click to switch server (not active ones)
     container.querySelectorAll('.modal-server-item:not(.active)').forEach(item => {
       item.addEventListener('click', (e) => {
         if (e.target.closest('.modal-server-delete') || e.target.closest('.modal-server-drag-handle')) return;
@@ -1241,7 +1054,6 @@ class WhatsAppBOTApp {
       });
     });
 
-    // Delete button
     container.querySelectorAll('.modal-server-delete').forEach(btn => {
       btn.addEventListener('click', (e) => {
         e.stopPropagation();
@@ -1249,16 +1061,10 @@ class WhatsAppBOTApp {
       });
     });
 
-    // Drag & Drop reordering
     this._setupServerDragDrop(container);
   }
 
-  /**
-   * Setup mouse-based drag & drop for server list reordering
-   * (HTML5 drag API is unreliable in Chrome extension popups)
-   */
   _setupServerDragDrop(container) {
-    // Cleanup previous listeners to prevent memory leak on re-render
     if (this._dragCleanup) {
       this._dragCleanup();
     }
@@ -1271,7 +1077,6 @@ class WhatsAppBOTApp {
 
     const getServerItems = () => [...container.querySelectorAll('.modal-server-item')];
 
-    // Activate drag on handle mousedown
     const onMouseDown = (e) => {
       const handle = e.target.closest('.modal-server-drag-handle');
       if (!handle) return;
@@ -1282,9 +1087,8 @@ class WhatsAppBOTApp {
       e.preventDefault();
       draggedItem = item;
       startY = e.clientY;
-      itemHeight = item.getBoundingClientRect().height + 3; // gap included
+      itemHeight = item.getBoundingClientRect().height + 3;
 
-      // Visual feedback
       item.classList.add('modal-server-dragging');
       container.classList.add('modal-servers-reordering');
       isDragging = true;
@@ -1311,7 +1115,7 @@ class WhatsAppBOTApp {
           } else {
             container.insertBefore(draggedItem, referenceItem);
           }
-          startY = currentY; // Reset reference point after each swap
+          startY = currentY;
         }
       }
     };
@@ -1322,7 +1126,6 @@ class WhatsAppBOTApp {
       draggedItem.classList.remove('modal-server-dragging');
       container.classList.remove('modal-servers-reordering');
 
-      // Persist new order
       const finalItems = getServerItems();
       const newOrder = finalItems.map(el => el.dataset.id);
       await this._reorderServers(newOrder);
@@ -1335,7 +1138,6 @@ class WhatsAppBOTApp {
     document.addEventListener('mousemove', onMouseMove);
     document.addEventListener('mouseup', onMouseUp);
 
-    // Store cleanup function for next re-render
     this._dragCleanup = () => {
       container.removeEventListener('mousedown', onMouseDown);
       document.removeEventListener('mousemove', onMouseMove);
@@ -1343,9 +1145,6 @@ class WhatsAppBOTApp {
     };
   }
 
-  /**
-   * Persist new server order after drag & drop
-   */
   async _reorderServers(orderedIds) {
     const servers = await this.getSavedServers();
     const reordered = [];
@@ -1355,7 +1154,6 @@ class WhatsAppBOTApp {
       if (server) reordered.push(server);
     }
 
-    // Add any servers not in orderedIds (safety net)
     for (const server of servers) {
       if (!reordered.find(s => s.id === server.id)) {
         reordered.push(server);
@@ -1363,13 +1161,9 @@ class WhatsAppBOTApp {
     }
 
     await this.saveServers(reordered);
-    // Dashboard'daki sunucu listesini de güncelle
     this.renderServerList();
   }
 
-  /**
-   * Sidebar kilitlenmesini güncelle - API yoksa diğer tab'lar disabled
-   */
   updateSidebarLock() {
     const canNavigate = this.state.apiReady && this.state.isConnected;
     const tabTitles = { 'chats': 'Sohbetler', 'messaging': 'Mesaj Gönderimi', 'dashboard': 'Kontrol Paneli' };
@@ -1389,21 +1183,17 @@ class WhatsAppBOTApp {
     });
   }
 
-  // ==================== THEME ====================
-
   toggleTheme() {
     const html = document.documentElement;
     const current = html.getAttribute('data-theme') || 'dark';
     const next = current === 'dark' ? 'light' : 'dark';
     html.setAttribute('data-theme', next);
 
-    // Update icon - show the mode you can switch TO
     const icon = document.querySelector('#theme-toggle i');
     if (icon) {
       icon.className = next === 'dark' ? 'fas fa-sun' : 'fas fa-moon';
     }
 
-    // Save preference
     if (typeof chrome !== 'undefined' && chrome.storage) {
       chrome.storage.local.set({ theme: next });
     } else {
@@ -1449,11 +1239,9 @@ class WhatsAppBOTApp {
       if (response.success && response.data) {
         const data = response.data;
 
-        // Populate form fields
         const timezoneSelect = document.getElementById('server-timezone');
         if (timezoneSelect) {
           timezoneSelect.value = data.timezone || 'Europe/Istanbul';
-          // Add timezone if not in list
           if (!timezoneSelect.querySelector(`option[value="${data.timezone}"]`)) {
             const option = document.createElement('option');
             option.value = data.timezone;
@@ -1467,18 +1255,15 @@ class WhatsAppBOTApp {
         document.getElementById('server-notify').checked = data.notify || false;
         document.getElementById('server-call-reject').checked = data.callReject?.enabled || false;
 
-        // Load cache clear interval
         const cacheIntervalSelect = document.getElementById('server-cache-clear-interval');
         if (cacheIntervalSelect) {
           cacheIntervalSelect.value = String(data.cacheClearInterval || 0);
         }
 
-        // Show server time
         const timeEl = document.getElementById('server-time');
         if (timeEl && data.time) {
           timeEl.textContent = data.time.localTime || data.time.currentTime || '-';
         } else if (timeEl) {
-          // If no time in response, show local time as fallback
           const tz = data.timezone || 'Europe/Istanbul';
           try {
             timeEl.textContent = new Date().toLocaleString('tr-TR', { timeZone: tz });
@@ -1498,8 +1283,6 @@ class WhatsAppBOTApp {
   }
 
   async saveServerSettings() {
-    const btn = document.getElementById('save-server-settings');
-
     try {
       utils.setLoading('save-server-settings', true);
 
@@ -1517,7 +1300,6 @@ class WhatsAppBOTApp {
 
       if (response.success) {
         utils.toast('Sunucu ayarları kaydedildi', 'success');
-        // Refresh to show updated time
         await this.loadServerSettings();
       } else {
         throw new Error(response.message || 'Ayarlar kaydedilemedi');
@@ -1539,9 +1321,7 @@ class WhatsAppBOTApp {
       const response = await api.clearChatCache(this.state.currentChatJid);
       if (response.success) {
         utils.toast(`Sohbet önbelleği temizlendi (${response.data?.clearedMessages || 0} mesaj)`, 'success');
-        // Close the chat view and go back to chat list
         this.closeChat();
-        // Reload chats list to reflect changes
         await this.loadChats();
       } else {
         throw new Error(response.message || 'Önbellek temizlenemedi');
@@ -1561,7 +1341,6 @@ class WhatsAppBOTApp {
       if (response.success) {
         const data = response.data || {};
         utils.toast(`Tüm önbellek temizlendi (${data.clearedChats || 0} sohbet, ${data.clearedMessages || 0} mesaj)`, 'success');
-        // Reload chats list
         await this.loadChats();
       } else {
         throw new Error(response.message || 'Önbellek temizlenemedi');
@@ -1574,8 +1353,6 @@ class WhatsAppBOTApp {
     }
   }
 
-  // ==================== TERMINAL LOG POPUP ====================
-
   openTerminalPopup() {
     const popup = document.getElementById('terminal-popup');
     const status = document.getElementById('terminal-status');
@@ -1583,38 +1360,28 @@ class WhatsAppBOTApp {
 
     if (!popup) return;
 
-    // Show popup
     popup.classList.remove('hidden');
 
-    // Reset state
     status.className = 'terminal-popup-status';
     status.innerHTML = '<span class="terminal-status-dot"></span><span>Bağlanıyor...</span>';
     output.innerHTML = '<div class="terminal-empty"><i class="fas fa-terminal"></i><span>Log akışı başlatılıyor...</span></div>';
 
-    // Auto-scroll flag
     this._terminalAutoScroll = true;
 
-    // Track scroll to determine auto-scroll behavior
     output.addEventListener('scroll', () => {
-      const atBottom = output.scrollHeight - output.scrollTop - output.clientHeight < 40;
-      this._terminalAutoScroll = atBottom;
+      this._terminalAutoScroll = output.scrollHeight - output.scrollTop - output.clientHeight < 40;
     });
 
-    // Start SSE stream
     api.startTerminalStream(
-      // onLog
       (logEntry) => {
         this.appendTerminalLog(logEntry);
       },
-      // onOpen
       () => {
         status.className = 'terminal-popup-status connected';
         status.innerHTML = '<span class="terminal-status-dot"></span><span>Bağlı — Canlı log akışı</span>';
-        // Clear empty state
         const empty = output.querySelector('.terminal-empty');
         if (empty) empty.remove();
       },
-      // onError
       (error) => {
         console.error('Terminal stream error:', error);
         status.className = 'terminal-popup-status error';
@@ -1626,8 +1393,6 @@ class WhatsAppBOTApp {
   closeTerminalPopup() {
     const popup = document.getElementById('terminal-popup');
     if (popup) popup.classList.add('hidden');
-
-    // Stop SSE stream
     api.stopTerminalStream();
   }
 
@@ -1637,7 +1402,6 @@ class WhatsAppBOTApp {
       output.innerHTML = '<div class="terminal-empty"><i class="fas fa-terminal"></i><span>Log temizlendi</span></div>';
     }
 
-    // Clear server-side log history
     try {
       await api.clearTerminalLogs();
     } catch (error) {
@@ -1649,7 +1413,6 @@ class WhatsAppBOTApp {
     const output = document.getElementById('terminal-output');
     if (!output) return;
 
-    // Remove empty state if exists
     const empty = output.querySelector('.terminal-empty');
     if (empty) empty.remove();
 
@@ -1673,7 +1436,6 @@ class WhatsAppBOTApp {
       ${hasData ? `<span class="terminal-data" title="${utils.escapeHtml(JSON.stringify(entry.data))}"><i class="fas fa-ellipsis-h"></i></span>` : ''}
     `;
 
-    // Data tooltip on click
     if (hasData) {
       const dataBtn = line.querySelector('.terminal-data');
       dataBtn?.addEventListener('click', () => {
@@ -1681,7 +1443,6 @@ class WhatsAppBOTApp {
         const pre = document.createElement('div');
         pre.style.cssText = 'padding:4px 8px;margin:2px 0 4px 100px;background:var(--bg-input);border-radius:4px;font-size:10px;color:var(--text-secondary);white-space:pre-wrap;word-break:break-all;border:1px solid var(--border)';
         pre.textContent = formatted;
-        // Toggle
         if (line.nextElementSibling?.dataset?.dataExpanded) {
           line.nextElementSibling.remove();
         } else {
@@ -1693,17 +1454,14 @@ class WhatsAppBOTApp {
 
     output.appendChild(line);
 
-    // Keep max 500 lines
     while (output.children.length > 500) {
       output.removeChild(output.firstChild);
     }
 
-    // Auto scroll if at bottom
     if (this._terminalAutoScroll) {
       output.scrollTop = output.scrollHeight;
     }
   }
-
 
   toggleApiKeyVisibility() {
     const input = document.getElementById('api-key');
@@ -1718,7 +1476,6 @@ class WhatsAppBOTApp {
     }
   }
 
-
   async saveSettings() {
     const url = document.getElementById('api-url').value.trim();
     const key = document.getElementById('api-key').value.trim();
@@ -1731,42 +1488,35 @@ class WhatsAppBOTApp {
     try {
       utils.setLoading('save-settings', true);
 
-      // Mevcut stream'leri durdur
       this.stopGlobalMessageStream();
       this.stopChatStream();
       api.stopQRStream();
 
       await api.saveSettings(url, key);
 
-      // Save to multi-server list
       await this.addOrUpdateServer(url, key);
 
       utils.toast('API ayarları kaydedildi', 'success');
 
-      // Clear add-server form
       this.clearAddServerForm();
 
-      // API bağlantısını test et
       try {
         await this.checkConnection();
         this.state.apiReady = true;
         this.updateSidebarLock();
 
         if (this.state.isConnected) {
-          // WP bağlı — modal kapat, uygulamaya geç
           this.closeApiModal();
           this.hideConnectionOverlay();
           this.switchTab('chats');
           this.updateApiStatusDot('connected');
         } else {
-          // Sunucu erişilebilir ama WP bağlı değil — modal kapat, bağlantı ekranını göster
           this.closeApiModal();
           this.showConnectionOverlay();
           this.updateApiStatusDot('connected');
           this.resetConnectButton();
         }
       } catch (e) {
-        // Sunucu erişilemiyor — modal açık kalsın (sunucular sekmesine geç)
         this.state.apiReady = false;
         this.updateSidebarLock();
         this.updateApiStatusDot('error');
@@ -1774,7 +1524,6 @@ class WhatsAppBOTApp {
         utils.toast('Sunucu kaydedildi ama bağlantı kurulamadı', 'warning');
       }
 
-      // Modal sunucu listesini güncelle
       this.renderModalServerList();
     } catch (error) {
       utils.toast(error.message, 'error');
@@ -1805,8 +1554,6 @@ class WhatsAppBOTApp {
     }
   }
 
-  // ==================== DASHBOARD ====================
-
   async loadDashboardData() {
     await Promise.all([
       this.loadStats(),
@@ -1822,7 +1569,6 @@ class WhatsAppBOTApp {
       if (response.success && response.data) {
         const data = response.data;
 
-        // System stats
         const sysUptime = document.getElementById('sys-uptime');
         if (sysUptime) sysUptime.textContent = utils.formatUptime(data.server?.uptime);
 
@@ -1840,7 +1586,6 @@ class WhatsAppBOTApp {
           healthEl.className = `system-health-badge ${healthStatus}`;
         }
 
-        // Stat cards
         const statChats = document.getElementById('stat-chats');
         const statMessages = document.getElementById('stat-messages');
         const statJobs = document.getElementById('stat-jobs');
@@ -1849,7 +1594,6 @@ class WhatsAppBOTApp {
         if (statMessages) statMessages.textContent = data.messages?.totalMessages || 0;
         if (statJobs) statJobs.textContent = data.queue?.activeJobs || 0;
 
-        // WhatsApp Stats
         const waConnectionTime = document.getElementById('wa-connection-time');
         const waSentToday = document.getElementById('wa-sent-today');
         const waQueuePending = document.getElementById('wa-queue-pending');
@@ -1895,8 +1639,6 @@ class WhatsAppBOTApp {
     }
   }
 
-  // ==================== CHATS ====================
-
   async loadChats(search = null) {
     try {
       const searchText = search ?? document.getElementById('chat-search')?.value;
@@ -1914,12 +1656,10 @@ class WhatsAppBOTApp {
       if (response.success && response.data?.chats?.length > 0) {
         container.innerHTML = response.data.chats.map(chat => this.renderChatItem(chat)).join('');
 
-        // Add click handlers
         container.querySelectorAll('.chat-item').forEach(item => {
           item.addEventListener('click', () => this.openChat(item.dataset.jid));
         });
 
-        // Sync unread chats from API data - count chats with unread, not total messages
         response.data.chats.forEach(c => {
           if (c.unreadCount > 0) {
             this.state.unreadChats.add(c.jid);
@@ -1937,10 +1677,8 @@ class WhatsAppBOTApp {
     } catch (error) {
       console.error('Load chats error:', error);
 
-      // Rate limit hatasını özel olarak işle
       const container = document.getElementById('chats-list');
       if (error.message && (error.message.includes('Rate limit') || error.message.includes('Çok fazla istek'))) {
-        // Rate limit için sessizce bekle, UI'ı bozmadan
         console.log('Rate limit hit while loading chats, will retry later');
       } else {
         container.innerHTML = `
@@ -1955,7 +1693,6 @@ class WhatsAppBOTApp {
   }
 
   renderChatItem(chat) {
-    // İsim yoksa veya "Ben" ise telefon numarasını göster
     let name = chat.name;
     if (!name || name === 'Ben' || name === 'BEN') {
       name = utils.formatPhone(chat.phone) || utils.formatJid(chat.jid);
@@ -1992,8 +1729,6 @@ class WhatsAppBOTApp {
 
     this.loadChats();
   }
-
-  // ==================== NEW CHAT ====================
 
   showNewChatPanel() {
     utils.hide('chat-welcome');
@@ -2043,10 +1778,8 @@ class WhatsAppBOTApp {
         result.innerHTML = '<i class="fas fa-check-circle"></i> WhatsApp\'ta kayıtlı';
         result.className = 'phone-check-result success';
 
-        // JID'i kaydet
         this.state.newChatJid = response.data.jid || `${phone}@s.whatsapp.net`;
 
-        // Show profile preview
         const avatar = document.getElementById('new-chat-avatar');
         const profilePhone = document.getElementById('new-chat-profile-phone');
         const profileStatus = document.getElementById('new-chat-profile-status');
@@ -2055,7 +1788,6 @@ class WhatsAppBOTApp {
         profilePhone.textContent = utils.formatPhone(phone);
         profileStatus.textContent = 'WhatsApp Kullanıcısı';
 
-        // Try to get profile info
         try {
           const profile = await api.getProfile(this.state.newChatJid);
           if (profile.success && profile.data) {
@@ -2065,7 +1797,6 @@ class WhatsAppBOTApp {
             }
           }
         } catch (e) {
-          // Profile bilgisi alınamazsa varsayılanları kullan
         }
 
         utils.show('new-chat-profile');
@@ -2088,13 +1819,11 @@ class WhatsAppBOTApp {
   }
 
   startNewChat() {
-    // Önce state'deki jid'i dene
     if (this.state.newChatJid) {
       this.openChat(this.state.newChatJid);
       return;
     }
 
-    // Jid yoksa, direkt telefon numarasından oluştur
     const phone = document.getElementById('new-chat-phone').value.trim().replace(/\D/g, '');
     if (phone && phone.length >= 10) {
       const jid = `${phone}@s.whatsapp.net`;
@@ -2105,31 +1834,24 @@ class WhatsAppBOTApp {
     }
   }
 
-  // ==================== ACTIVE CHAT ====================
-
   async openChat(jid, retryCount = 0) {
-    // Stop any existing chat stream
     this.stopChatStream();
 
     this.state.currentChatJid = jid;
 
-    // Remove from unread set
     if (this.state.unreadChats.has(jid)) {
       this.state.unreadChats.delete(jid);
       this.updateUnreadBadge();
     }
 
-    // Hide other panels, show chat view
     utils.hide('chat-welcome');
     utils.hide('new-chat-panel');
     utils.show('chat-active-view');
 
-    // Update active state in list
     document.querySelectorAll('.chat-item').forEach(item => {
       item.classList.toggle('active', item.dataset.jid === jid);
     });
 
-    // Get chat info
     const chatItem = document.querySelector(`.chat-item[data-jid="${jid}"]`);
     const name = chatItem?.querySelector('.chat-item-name')?.textContent || utils.formatJid(jid);
     const initial = (name || '?').charAt(0).toUpperCase();
@@ -2140,7 +1862,6 @@ class WhatsAppBOTApp {
 
     const messagesContainer = document.getElementById('chat-messages');
 
-    // İlk yüklemede loading göster, retry'da gösterme
     if (retryCount === 0) {
       messagesContainer.innerHTML = '<div class="chats-empty"><span class="spinner"></span></div>';
     }
@@ -2151,38 +1872,31 @@ class WhatsAppBOTApp {
       if (response.success && response.data?.messages?.length > 0) {
         let lastDate = '';
         let html = '';
-        const seenMessageIds = new Set(); // Duplicate kontrolü için
+        const seenMessageIds = new Set();
 
-        // Reverse to show oldest first, then newest at bottom
         const messages = [...response.data.messages].reverse();
 
         messages.forEach(msg => {
-          // Duplicate kontrolü
           if (msg.id && seenMessageIds.has(msg.id)) {
             return;
           }
           if (msg.id) seenMessageIds.add(msg.id);
 
-          // fromMe veya isFromMe flag'ini kullan - API'den gelen değere güven
           const isOutgoing = msg.fromMe === true || msg.isFromMe === true;
           const time = utils.formatDate(msg.timestamp, 'time');
           const content = msg.content || msg.message || msg.body || '';
           const msgDate = new Date(msg.timestamp).toLocaleDateString('tr-TR');
 
-          // Date divider
           if (msgDate !== lastDate) {
             lastDate = msgDate;
             html += `<div class="message-date-divider"><span>${this.getDateLabel(msg.timestamp)}</span></div>`;
           }
 
-          // Mesaj tipini kontrol et - medya mesajları için özel render
           const msgType = msg.type || 'text';
           const isMedia = ['image', 'video', 'audio', 'document', 'sticker', 'ptt', 'location', 'liveLocation', 'vcard', 'contact', 'poll', 'event'].includes(msgType);
-          // Text tipinde olup [IMAGE] gibi placeholder içeren mesajları da medya olarak algıla
-          const mediaTagMatch = !isMedia && content.match(/^\[(?:Image|File|Video|Audio|Document|Sticker|Ptt|Media|Location|Live Location|Contact|Poll|Event|IMAGE|FILE|VIDEO|AUDIO|DOCUMENT|STICKER|PTT|MEDIA|LOCATION|CONTACT|POLL|EVENT|\d+\s*Contact)\]$/i);
+          const mediaTagMatch = !isMedia && content.match(/^\[(?:Image|File|Video|Audio|Document|Sticker|Ptt|Media|Location|Live Location|Contact|Poll|Event|IMAGE|FILE|VIDEO|AUDIO|DOCUMENT|STICKER|PTT|MEDIA|LOCATION|CONTACT|POLL|EVENT|\d+\s*Contact)]$/i);
           const treatAsMedia = isMedia || !!mediaTagMatch;
 
-          // Boş text mesajlarını atla (bilinmeyen mesaj tipleri olabilir)
           if (!treatAsMedia && !content.trim()) {
             return;
           }
@@ -2207,7 +1921,7 @@ class WhatsAppBOTApp {
               'poll': { icon: 'fa-poll', label: 'Anket' },
               'event': { icon: 'fa-calendar-check', label: 'Etkinlik' }
             };
-            const media = mediaLabels[effectiveType] || { icon: 'fa-file', label: 'Dosya' };
+            const media = mediaLabels[effectiveType] || mediaLabels[msgType] || { icon: 'fa-file', label: 'Dosya' };
 
             html += `
               <div class="message-bubble ${isOutgoing ? 'outgoing' : 'incoming'}" data-msg-id="${msg.id || ''}">
@@ -2255,28 +1969,22 @@ class WhatsAppBOTApp {
         document.getElementById('chat-header-status').textContent = 'Yeni sohbet';
       }
 
-      // Sohbet açıldığında okundu olarak işaretle
       try {
         await api.markAsRead(jid);
       } catch (readErr) {
         console.log('Failed to mark as read:', readErr);
       }
 
-      // Start chat-specific SSE stream
       this.startChatStream(jid);
 
-      // Refresh chat list
       this.loadChats();
-
     } catch (error) {
       console.error('Load chat error:', error);
 
-      // Rate limit hatasını özel olarak işle
       const isRateLimit = error.message && (error.message.includes('Rate limit') || error.message.includes('Çok fazla istek') || error.message.includes('Too many requests'));
 
       if (isRateLimit && retryCount < 3) {
-        // Rate limit - otomatik retry
-        const waitTime = (retryCount + 1) * 2; // 2, 4, 6 saniye bekle
+        const waitTime = (retryCount + 1) * 2;
         document.getElementById('chat-header-status').textContent = `${waitTime} saniye bekliyor...`;
 
         messagesContainer.innerHTML = `
@@ -2326,9 +2034,7 @@ class WhatsAppBOTApp {
     return date.toLocaleDateString('tr-TR', { day: 'numeric', month: 'long' });
   }
 
-
   closeChat() {
-    // Stop chat-specific SSE stream
     this.stopChatStream();
 
     this.state.currentChatJid = null;
@@ -2350,20 +2056,17 @@ class WhatsAppBOTApp {
     const sendBtn = document.getElementById('chat-send-btn');
     const messagesContainer = document.getElementById('chat-messages');
 
-    // Bağlantı durumunu önce kontrol et
     if (!this.state.isConnected) {
-      // State'e güvenme, API'den kontrol et
       try {
         const statusResponse = await api.getStatus();
         if (!statusResponse.success || !statusResponse.data?.isConnected) {
           utils.toast('WhatsApp bağlı değil. Lütfen önce bağlanın.', 'warning');
           return;
         }
-        // Aslında bağlıymış, state'i güncelle
         this.state.isConnected = true;
         this.updateConnectionUI();
       } catch (error) {
-        utils.toast('Bağlantı kontrol edilemedi: ' + error.message, 'error');
+        utils.toast('Bağlantı kontrol edilemedi', 'error');
         return;
       }
     }
@@ -2372,7 +2075,6 @@ class WhatsAppBOTApp {
       sendBtn.disabled = true;
       input.disabled = true;
 
-      // Optimistic update
       const time = new Date().toLocaleTimeString('tr-TR', { hour: '2-digit', minute: '2-digit' });
       const tempMsg = document.createElement('div');
       tempMsg.className = 'message-bubble outgoing';
@@ -2389,23 +2091,19 @@ class WhatsAppBOTApp {
       input.value = '';
       input.style.height = 'auto';
 
-      // Send typing indicator if enabled
       await this.sendTypingIfEnabled(jid);
 
       const response = await api.sendMessage(jid, message);
 
       if (response.success) {
-        // Update status to sent
         tempMsg.querySelector('.message-status').innerHTML = '<i class="fas fa-check"></i>';
         tempMsg.querySelector('.message-status').classList.remove('sending');
       } else {
         throw new Error(response.message || 'Mesaj gönderilemedi');
       }
-
     } catch (error) {
       console.error('Send message error:', error);
 
-      // Hata durumunda mesajı hata durumuna güncelle
       const lastBubble = messagesContainer.querySelector('.message-bubble:last-child');
       if (lastBubble) {
         const statusEl = lastBubble.querySelector('.message-status');
@@ -2416,7 +2114,6 @@ class WhatsAppBOTApp {
           statusEl.title = 'Gönderim başarısız - tıklayarak tekrar deneyin';
           statusEl.style.cursor = 'pointer';
 
-          // Retry click handler
           const failedMessage = lastBubble.querySelector('.message-text')?.textContent || '';
           statusEl.onclick = async () => {
             statusEl.innerHTML = '<i class="fas fa-clock"></i>';
@@ -2445,7 +2142,6 @@ class WhatsAppBOTApp {
         }
       }
 
-      // Bağlantı kopmuş olabilir - kontrol et
       try {
         const statusResponse = await api.getStatus();
         if (statusResponse.success && statusResponse.data) {
@@ -2456,7 +2152,6 @@ class WhatsAppBOTApp {
           if (!statusResponse.data.isConnected) {
             utils.toast('Mesaj gönderilemedi: WhatsApp yeniden bağlanıyor...', 'warning');
           } else {
-            // Bağlı ama gönderim başarısız - API retry yapıyor olabilir
             const errorMsg = error.message || '';
             if (errorMsg.includes('Maksimum deneme')) {
               utils.toast('Mesaj gönderilemedi: Bağlantı sorunları yaşanıyor', 'error');
@@ -2475,8 +2170,6 @@ class WhatsAppBOTApp {
     }
   }
 
-  // ==================== MESSAGING TAB ====================
-
   switchMessageType(type) {
     this.state.messageType = type;
 
@@ -2488,9 +2181,6 @@ class WhatsAppBOTApp {
     utils.toggle('bulk-message-form', type === 'bulk');
   }
 
-  /**
-   * Send typing indicator if typing duration is enabled in addon settings
-   */
   async sendTypingIfEnabled(jid) {
     try {
       const getTypingDuration = () => new Promise(resolve => {
@@ -2507,7 +2197,6 @@ class WhatsAppBOTApp {
         await api.sendTyping(jid, 'paused');
       }
     } catch (e) {
-      // Typing indicator is non-critical, silently fail
       console.debug('Typing indicator failed:', e);
     }
   }
@@ -2521,12 +2210,10 @@ class WhatsAppBOTApp {
 
     utils.toggle('single-schedule-datetime', mode === 'later');
 
-    // Datetime picker'a minimum tarih ayarla (1 dakika sonrası)
     if (mode === 'later') {
       const datetimeInput = document.getElementById('single-datetime');
       if (datetimeInput) {
         datetimeInput.min = utils.getMinScheduleDate();
-        // Varsayılan olarak 1 saat sonrasını ayarla
         if (!datetimeInput.value) {
           const defaultDate = new Date();
           defaultDate.setHours(defaultDate.getHours() + 1);
@@ -2577,14 +2264,12 @@ class WhatsAppBOTApp {
       return;
     }
 
-    // Geçmiş zaman kontrolü
     if (isScheduled && datetime) {
       const scheduledTime = new Date(datetime);
       const now = new Date();
-      const minTime = new Date(now.getTime() + 60000); // En az 1 dakika sonrası
+      const minTime = new Date(now.getTime() + 60000);
       if (scheduledTime <= minTime) {
         utils.toast('Gönderim zamanı en az 1 dakika sonrası olmalıdır', 'warning');
-        // min attribute'u güncelle
         document.getElementById('single-datetime').min = utils.getMinScheduleDate();
         return;
       }
@@ -2592,7 +2277,6 @@ class WhatsAppBOTApp {
 
     const btn = document.getElementById('single-send-btn');
 
-    // Bağlantı kontrolü
     if (!this.state.isConnected) {
       try {
         const statusResponse = await api.getStatus();
@@ -2600,7 +2284,6 @@ class WhatsAppBOTApp {
           utils.toast('WhatsApp bağlı değil. Lütfen önce bağlanın.', 'warning');
           return;
         }
-        // Aslında bağlıymış
         this.state.isConnected = true;
         this.updateConnectionUI();
       } catch (error) {
@@ -2612,7 +2295,6 @@ class WhatsAppBOTApp {
     try {
       utils.setLoading(btn, true, 'Gönderiliyor...');
 
-      // Telefon numarasını normalleştir
       const normalizedPhone = utils.normalizePhone(recipient);
       if (!normalizedPhone || normalizedPhone.length < 10) {
         utils.toast('Geçersiz telefon numarası', 'warning');
@@ -2623,7 +2305,6 @@ class WhatsAppBOTApp {
       const jid = `${normalizedPhone}@s.whatsapp.net`;
 
       if (isScheduled) {
-        // Schedule message
         const scheduledAt = new Date(datetime).toISOString();
         const response = await api.scheduleMessage(jid, message, scheduledAt, type, { mediaUrl, caption });
 
@@ -2639,7 +2320,6 @@ class WhatsAppBOTApp {
           throw new Error(response.message || 'Mesaj zamanlanamadı');
         }
       } else {
-        // Send immediately - typing indicator
         await this.sendTypingIfEnabled(jid);
         const response = await api.sendMessage(jid, message, type, { mediaUrl, caption });
 
@@ -2660,29 +2340,18 @@ class WhatsAppBOTApp {
     }
   }
 
-  // ==================== BULK MESSAGES ====================
-
   setBulkMessageType(type) {
-    // Update hidden input
     document.getElementById('bulk-type').value = type;
 
-    // Update button states
     document.querySelectorAll('.type-option[data-bulk-type]').forEach(opt => {
       opt.classList.toggle('active', opt.dataset.bulkType === type);
     });
 
-    // Toggle media/text sections
-    utils.toggle('bulk-text-group', type === 'text');
-    utils.toggle('bulk-media-group', type !== 'text');
-  }
-
-  toggleBulkMediaInput(type) {
     utils.toggle('bulk-text-group', type === 'text');
     utils.toggle('bulk-media-group', type !== 'text');
   }
 
   updateRecipientCount(text) {
-    // Boş olmayan satır sayısını hesapla
     const lines = text.split(/\n/).filter(line => line.trim().length > 0);
     document.getElementById('recipient-count').textContent = lines.length;
   }
@@ -2720,7 +2389,6 @@ class WhatsAppBOTApp {
       return;
     }
 
-    // Geçmiş zaman kontrolü (ileri tarih zamanlaması)
     if (useSchedule && scheduleDateTime) {
       const scheduledTime = new Date(scheduleDateTime);
       const now = new Date();
@@ -2740,7 +2408,6 @@ class WhatsAppBOTApp {
 
     const btn = document.getElementById('bulk-send-btn');
 
-    // Bağlantı kontrolü
     if (!this.state.isConnected) {
       try {
         const statusResponse = await api.getStatus();
@@ -2748,7 +2415,6 @@ class WhatsAppBOTApp {
           utils.toast('WhatsApp bağlı değil. Lütfen önce bağlanın.', 'warning');
           return;
         }
-        // Aslında bağlıymış
         this.state.isConnected = true;
         this.updateConnectionUI();
       } catch (error) {
@@ -2769,7 +2435,6 @@ class WhatsAppBOTApp {
         };
       }
 
-      // İleri tarih zamanlaması
       if (useSchedule && scheduleDateTime) {
         options.scheduledAt = new Date(scheduleDateTime).toISOString();
       }
@@ -2785,7 +2450,6 @@ class WhatsAppBOTApp {
         document.getElementById('bulk-message').value = '';
         document.getElementById('recipient-count').textContent = '0';
         document.getElementById('bulk-char-count').textContent = '0';
-        // Reset schedule toggle buttons
         const scheduleCheckbox = document.getElementById('bulk-schedule-enabled');
         if (scheduleCheckbox) {
           scheduleCheckbox.checked = false;
@@ -2793,12 +2457,6 @@ class WhatsAppBOTApp {
         }
         document.querySelectorAll('.schedule-option[data-bulk-schedule]').forEach(o => o.classList.remove('active'));
         document.querySelector('.schedule-option[data-bulk-schedule="now"]')?.classList.add('active');
-        // Reset time window toggle buttons
-        const twCheckbox = document.getElementById('bulk-time-window');
-        if (twCheckbox) {
-          twCheckbox.checked = false;
-          utils.hide('time-window-group');
-        }
         document.querySelectorAll('.schedule-option[data-time-window]').forEach(o => o.classList.remove('active'));
         document.querySelector('.schedule-option[data-time-window="off"]')?.classList.add('active');
         await this.loadBulkJobs();
@@ -2819,7 +2477,6 @@ class WhatsAppBOTApp {
       if (response.success && response.data?.jobs?.length > 0) {
         container.innerHTML = response.data.jobs.map(job => this.renderJobItem(job)).join('');
 
-        // Add event listeners
         container.querySelectorAll('[data-action]').forEach(btn => {
           btn.addEventListener('click', () => this.handleJobAction(btn.dataset.action, btn.dataset.jobId));
         });
@@ -2843,7 +2500,6 @@ class WhatsAppBOTApp {
     const isPaused = job.status === 'paused';
     const isCompleted = ['completed', 'failed', 'cancelled'].includes(job.status);
 
-    // Status labels in Turkish
     const statusLabels = {
       'active': 'Aktif',
       'processing': 'İşleniyor',
@@ -2920,7 +2576,7 @@ class WhatsAppBOTApp {
           break;
         case 'details':
           await this.showJobDetails(jobId);
-          return; // Don't reload jobs list
+          return;
       }
       await this.loadBulkJobs();
     } catch (error) {
@@ -2937,16 +2593,12 @@ class WhatsAppBOTApp {
       }
 
       const job = response.data;
-      // API returns 'recipients' not 'items'
       const recipients = job.recipients || [];
 
-      // Group recipients by status
-      // API status values: 'pending', 'processing', 'completed', 'failed'
       const sent = recipients.filter(i => i.status === 'completed' || i.status === 'sent');
       const failed = recipients.filter(i => i.status === 'failed');
       const pending = recipients.filter(i => i.status === 'pending' || i.status === 'processing' || i.status === 'queued');
 
-      // İşin durumuna göre varsayılan sekmeyi belirle
       let defaultTab = 'pending';
       let defaultList = pending;
       if (pending.length === 0 && sent.length > 0) {
@@ -2957,7 +2609,6 @@ class WhatsAppBOTApp {
         defaultList = failed;
       }
 
-      // Status label
       const statusLabels = {
         'queued': 'Kuyrukta',
         'processing': 'İşleniyor',
@@ -2968,10 +2619,8 @@ class WhatsAppBOTApp {
       };
       const statusLabel = statusLabels[job.status] || job.status;
 
-      // Mesaj içeriği
       const messageContent = job.message || job.caption || (job.mediaUrl ? `[${job.messageType?.toUpperCase() || 'MEDYA'}]` : '[Boş]');
 
-      // Create modal content
       const modalHtml = `
         <div class="job-details-modal" id="job-details-modal">
           <div class="job-details-content">
@@ -3029,13 +2678,10 @@ class WhatsAppBOTApp {
         </div>
       `;
 
-      // Insert modal
       document.body.insertAdjacentHTML('beforeend', modalHtml);
 
-      // Store data for tab switching
       const tabData = { sent, failed, pending };
 
-      // Event listeners
       document.getElementById('close-job-details').addEventListener('click', () => {
         document.getElementById('job-details-modal').remove();
       });
@@ -3051,14 +2697,12 @@ class WhatsAppBOTApp {
         });
       });
 
-      // Close on backdrop click
       document.getElementById('job-details-modal').addEventListener('click', (e) => {
         if (e.target.id === 'job-details-modal') {
           e.target.remove();
         }
       });
 
-      // ESC tuşu ile kapatma
       const escHandler = (e) => {
         if (e.key === 'Escape') {
           document.getElementById('job-details-modal')?.remove();
@@ -3066,7 +2710,6 @@ class WhatsAppBOTApp {
         }
       };
       document.addEventListener('keydown', escHandler);
-
     } catch (error) {
       utils.toast('Detaylar yüklenemedi: ' + error.message, 'error');
     }
@@ -3078,10 +2721,8 @@ class WhatsAppBOTApp {
     }
 
     return items.map(item => {
-      // Use phone field directly if available, otherwise extract from jid
       const phone = item.phone || utils.formatJid(item.jid);
       const formattedPhone = utils.formatPhone(phone) || phone;
-      // API returns processedAt, not sentAt
       const time = item.processedAt ? utils.formatDate(item.processedAt, 'time') : '';
       const statusIcon = type === 'sent' ? '<i class="fas fa-check" style="color: var(--success);"></i>' :
                          type === 'failed' ? '<i class="fas fa-times" style="color: var(--danger);"></i>' :
@@ -3097,8 +2738,6 @@ class WhatsAppBOTApp {
       `;
     }).join('');
   }
-
-  // ==================== SCHEDULED MESSAGES ====================
 
   async loadScheduledMessages() {
     try {
@@ -3131,7 +2770,6 @@ class WhatsAppBOTApp {
     const statusClass = utils.getStatusClass(msg.status);
     const createdAt = utils.formatDate(msg.createdAt, 'full');
 
-    // Status label in Turkish
     const statusLabels = {
       'pending': 'Bekliyor',
       'sent': 'Gönderildi',
@@ -3205,15 +2843,11 @@ class WhatsAppBOTApp {
     }
   }
 
-  // ==================== AUTO REFRESH ====================
-
   startAutoRefresh() {
-    // Bağlantı durumu kontrolü - her 15 saniyede bir
     setInterval(() => {
       this.checkConnectionHealth();
     }, 15000);
 
-    // Tab verilerini yenileme - her 30 saniyede bir
     setInterval(() => {
       if (this.state.isConnected) {
         switch (this.state.currentTab) {
@@ -3223,31 +2857,23 @@ class WhatsAppBOTApp {
           case 'messaging':
             this.loadBulkJobs();
             break;
-          // Note: chats are updated via SSE now
         }
       }
     }, 30000);
   }
 
-  /**
-   * Check connection health and sync SSE status
-   */
   async checkConnectionHealth() {
-    // Debounce kontrolü - çok sık çağrılmasını önle
     if (this._healthCheckInProgress) return;
     this._healthCheckInProgress = true;
 
     try {
-      // Bağlı görünüyorsa ama SSE aktif değilse, yeniden başlat
       if (this.state.isConnected && !api.isMessageStreamActive()) {
         console.log('SSE stream inactive but state says connected, restarting immediately...');
         this.startGlobalMessageStream();
-        // Aynı zamanda API'den doğrula
         try {
           const response = await api.getStatus();
           if (response.success && response.data) {
             if (!response.data.isConnected) {
-              // Bağlantı kopmuş
               console.log('Connection lost detected in health check');
               this.state.isConnected = false;
               this.state.isConnecting = response.data.isConnecting || false;
@@ -3263,7 +2889,6 @@ class WhatsAppBOTApp {
             }
           }
         } catch (apiError) {
-          // Sunucu erişilemedi - bağlantıyı kopmuş olarak işaretle
           console.error('API unreachable during health check:', apiError);
           this.state.isConnected = false;
           this.state.isConnecting = false;
@@ -3276,13 +2901,11 @@ class WhatsAppBOTApp {
         return;
       }
 
-      // Bağlı görünüyor ve SSE aktif - periyodik doğrulama yap
       if (this.state.isConnected) {
         try {
           const response = await api.getStatus();
           if (response.success && response.data) {
             if (!response.data.isConnected && this.state.isConnected) {
-              // Bağlantı kopmuş ama UI hala bağlı gösteriyor
               console.log('Connection lost detected in health check');
               this.state.isConnected = false;
               this.state.isConnecting = response.data.isConnecting || false;
@@ -3296,7 +2919,6 @@ class WhatsAppBOTApp {
               this.stopGlobalMessageStream();
               utils.toast('WhatsApp bağlantısı kesildi', 'warning');
             } else if (response.data.isConnected && !this.state.isConnected) {
-              // Bağlı ama state yanlış - düzelt
               console.log('State out of sync, fixing...');
               this.state.isConnected = true;
               this.state.isConnecting = false;
@@ -3309,7 +2931,6 @@ class WhatsAppBOTApp {
             }
           }
         } catch (apiError) {
-          // Sunucu erişilemedi
           console.error('API unreachable during periodic health check:', apiError);
           this.state.isConnected = false;
           this.state.isConnecting = false;
@@ -3320,12 +2941,10 @@ class WhatsAppBOTApp {
         }
       }
 
-      // Bağlı değil görünüyor ama aslında bağlı olabilir
       if (!this.state.isConnected && !this.state.isConnecting) {
         try {
           const response = await api.getStatus();
           if (response.success && response.data?.isConnected) {
-            // Aslında bağlı!
             console.log('Actually connected, fixing state...');
             this.state.isConnected = true;
             this.state.sessionInfo = response.data.session;
@@ -3333,7 +2952,6 @@ class WhatsAppBOTApp {
             this.startGlobalMessageStream();
           }
         } catch {
-          // API erişilemedi, skip
         }
       }
     } catch (error) {
@@ -3343,68 +2961,49 @@ class WhatsAppBOTApp {
     }
   }
 
-  // ==================== SSE MESSAGE STREAMS ====================
-
-  /**
-   * Start global message stream for unread notifications
-   * Called when connected to WhatsApp
-   */
   startGlobalMessageStream() {
     console.log('Starting global message stream...');
 
-    // Önceki stream varsa kapat
     this.stopGlobalMessageStream();
 
-    // Bağlantı durumunu kaydet
     let streamReconnectAttempts = 0;
     const maxStreamReconnectAttempts = 5;
 
     api.startMessageStream(
-      // onMessage
       (message) => {
         console.log('New message received:', message);
 
-        // JID normalize karşılaştırma
         const msgFrom = (message.from || '').split('@')[0].split(':')[0];
         const currentChat = (this.state.currentChatJid || '').split('@')[0].split(':')[0];
 
-        // Only consider chat "open" if we're on chats tab AND viewing that specific chat
         const isChatOpen = this.state.currentTab === 'chats' && currentChat && msgFrom === currentChat;
 
         if (!isChatOpen) {
           this.state.unreadChats.add(message.from);
           this.updateUnreadBadge();
 
-          // Refresh chat list if on chats tab
           if (this.state.currentTab === 'chats') {
             this.loadChats();
           }
         } else {
-          // Message is for current chat, add to view
           this.appendMessageToChat(message);
         }
       },
-      // onInit
       (data) => {
         console.log('SSE init:', data);
         if (data.isConnected !== undefined) {
           const wasConnected = this.state.isConnected;
 
-          // SSE'den gelen durumu doğrudan UI'ya yansıtmadan önce kontrol et
           if (!data.isConnected && wasConnected) {
-            // SSE bağlantı kesildi diyor ama gerçekten öyle mi?
-            // API'den doğrula
             api.getStatus().then(response => {
               if (response.success && response.data) {
                 if (response.data.isConnected) {
-                  // Aslında hala bağlı - SSE'yi yeniden başlat
                   console.log('SSE said disconnected but API says connected, restarting stream...');
                   if (streamReconnectAttempts < maxStreamReconnectAttempts) {
                     streamReconnectAttempts++;
                     setTimeout(() => this.startGlobalMessageStream(), 2000);
                   }
                 } else {
-                  // Gerçekten bağlantı kopmuş
                   this.state.isConnected = false;
                   this.state.isConnecting = response.data.isConnecting || false;
                   this.resetConnectButton();
@@ -3414,7 +3013,6 @@ class WhatsAppBOTApp {
                 }
               }
             }).catch(() => {
-              // API erişilemedi - muhtemelen gerçekten kopmuş
               this.state.isConnected = false;
               this.state.isConnecting = false;
               this.resetConnectButton();
@@ -3422,39 +3020,28 @@ class WhatsAppBOTApp {
               this.stopGlobalMessageStream();
             });
           } else if (data.isConnected) {
-            // Bağlı durumu onaylandı
             this.state.isConnected = true;
             this.state.isConnecting = false;
-            streamReconnectAttempts = 0; // Reset counter on success
+            streamReconnectAttempts = 0;
             this.updateConnectionUI();
           }
         }
       },
-      // onError
       (error) => {
         console.error('Global SSE error:', error);
-        // SSE hatası - handleSSEError çağrılacak
         this.handleSSEError();
       }
     );
   }
 
-  /**
-   * Stop global message stream
-   */
   stopGlobalMessageStream() {
     console.log('Stopping global message stream...');
     api.stopMessageStream();
   }
 
-  /**
-   * Handle SSE connection error
-   * Checks actual connection status from API before making decisions
-   */
   async handleSSEError() {
     console.log('Handling SSE error, checking connection status...');
 
-    // Debounce - çok sık çağrılmasını önle
     if (this._sseErrorHandling) {
       console.log('SSE error handling already in progress');
       return;
@@ -3473,19 +3060,16 @@ class WhatsAppBOTApp {
         this.state.isConnecting = isNowConnecting;
         this.state.sessionInfo = response.data.session;
 
-        // Connect butonunu güncelle
         if (!isNowConnected && !isNowConnecting) {
           this.resetConnectButton();
         }
 
         this.updateConnectionUI();
 
-        // Bağlantı kesilmiş ve önceden bağlıydıysa bildir
         if (wasConnected && !isNowConnected && !isNowConnecting) {
           utils.toast('WhatsApp bağlantısı kesildi', 'warning');
         }
 
-        // Hala bağlıysa SSE stream'i yeniden başlat
         if (isNowConnected) {
           console.log('Still connected, restarting SSE stream in 3s...');
           setTimeout(() => {
@@ -3497,7 +3081,6 @@ class WhatsAppBOTApp {
       }
     } catch (error) {
       console.error('Status check failed:', error);
-      // API erişilemez durumda - 10 saniye sonra tekrar dene
       setTimeout(async () => {
         try {
           const retryResponse = await api.getStatus();
@@ -3514,7 +3097,6 @@ class WhatsAppBOTApp {
             }
           }
         } catch {
-          // Hala erişilemez
           this.state.isConnected = false;
           this.state.isConnecting = false;
           this.resetConnectButton();
@@ -3522,71 +3104,53 @@ class WhatsAppBOTApp {
         }
       }, 10000);
     } finally {
-      // Debounce süresi
       setTimeout(() => {
         this._sseErrorHandling = false;
       }, 5000);
     }
   }
 
-  /**
-   * Start chat-specific SSE stream when opening a chat
-   */
   startChatStream(jid) {
     console.log('Starting chat stream for:', jid);
 
     api.startChatStream(
       jid,
-      // onMessage
       (message) => {
         console.log('Chat message received:', message);
         this.appendMessageToChat(message);
 
-        // Mark this chat as read since we're viewing it
         if (this.state.unreadChats.has(jid)) {
           this.state.unreadChats.delete(jid);
           this.updateUnreadBadge();
         }
       },
-      // onInit
       (data) => {
         console.log('Chat SSE init:', data);
       },
-      // onError
       (error) => {
         console.error('Chat SSE error:', error);
       }
     );
   }
 
-  /**
-   * Stop chat-specific SSE stream
-   */
   stopChatStream() {
     console.log('Stopping chat stream...');
     api.stopChatStream();
   }
 
-  /**
-   * Append a new message to the chat view
-   */
   appendMessageToChat(message) {
     const messagesContainer = document.getElementById('chat-messages');
     if (!messagesContainer) return;
 
-    // Check if this is the current chat
     const messageJid = message.from || message.jid;
     const isOutgoing = message.fromMe === true || message.isFromMe === true;
 
-    // JID normalize karşılaştırması - numara kısmını çıkararak karşılaştır
     const normalizeJid = (jid) => jid ? jid.split('@')[0].split(':')[0] : '';
     const messageNumber = normalizeJid(messageJid);
     const currentNumber = normalizeJid(this.state.currentChatJid);
 
-    // Gelen mesajlar için JID kontrolü, gönderilen mesajlar için her zaman ekle
     if (!isOutgoing && messageNumber !== currentNumber) return;
 
-    // Duplicate kontrolü - message ID ile
     const messageId = message.id || message.messageId;
     if (messageId) {
       const existingMsg = messagesContainer.querySelector(`[data-msg-id="${messageId}"]`);
@@ -3596,7 +3160,6 @@ class WhatsAppBOTApp {
       }
     }
 
-    // İçerik ve zaman bazlı duplicate kontrolü
     const content = message.content || message.message || message.body || '';
     const timestamp = message.timestamp ? new Date(message.timestamp).getTime() : Date.now();
     const time = new Date(timestamp).toLocaleTimeString('tr-TR', {
@@ -3604,7 +3167,6 @@ class WhatsAppBOTApp {
       minute: '2-digit'
     });
 
-    // Son 10 mesajda aynı içerik + aynı yön + 5 saniye içinde = duplicate
     const recentMessages = messagesContainer.querySelectorAll('.message-bubble');
     const recentArray = Array.from(recentMessages).slice(-10);
     for (const recent of recentArray) {
@@ -3620,7 +3182,6 @@ class WhatsAppBOTApp {
       }
     }
 
-    // Remove empty state if exists
     const emptyState = messagesContainer.querySelector('.chats-empty');
     if (emptyState) emptyState.remove();
 
@@ -3629,14 +3190,12 @@ class WhatsAppBOTApp {
     if (messageId) msgDiv.setAttribute('data-msg-id', messageId);
     msgDiv.setAttribute('data-timestamp', String(timestamp));
 
-    // Medya tipi kontrolü
     const msgType = message.type || 'text';
     let isMedia = ['image', 'video', 'audio', 'document', 'sticker', 'ptt', 'location', 'liveLocation', 'vcard', 'contact', 'poll', 'event'].includes(msgType);
 
-    // Text tipinde olup [IMAGE] gibi placeholder içeren mesajları da medya olarak algıla
     let effectiveMediaType = msgType;
     if (!isMedia && content) {
-      const mediaTagMatch = content.match(/^\[(?:Image|File|Video|Audio|Document|Sticker|Ptt|Media|Location|Live Location|Contact|Poll|Event|\d+\s*Contact)\]$/i);
+      const mediaTagMatch = content.match(/^\[(?:Image|File|Video|Audio|Document|Sticker|Ptt|Media|Location|Live Location|Contact|Poll|Event|\d+\s*Contact)]$/i);
       if (mediaTagMatch) {
         isMedia = true;
         const tagMap = { 'IMAGE': 'image', 'FILE': 'document', 'VIDEO': 'video', 'AUDIO': 'audio', 'DOCUMENT': 'document', 'STICKER': 'sticker', 'PTT': 'ptt', 'MEDIA': 'image', 'LOCATION': 'location', 'LIVE LOCATION': 'liveLocation', 'CONTACT': 'vcard', 'POLL': 'poll', 'EVENT': 'event' };
@@ -3644,7 +3203,6 @@ class WhatsAppBOTApp {
       }
     }
 
-    // Boş text mesajlarını atla
     if (!isMedia && !content.trim()) {
       return;
     }
@@ -3692,7 +3250,6 @@ class WhatsAppBOTApp {
     messagesContainer.appendChild(msgDiv);
     messagesContainer.scrollTop = messagesContainer.scrollHeight;
 
-    // Gelen mesaj ise ve sohbet açıksa, okundu olarak işaretle
     if (!isOutgoing && this.state.currentChatJid) {
       api.markAsRead(this.state.currentChatJid).catch(err => {
         console.log('Failed to mark as read:', err);
@@ -3700,9 +3257,6 @@ class WhatsAppBOTApp {
     }
   }
 
-  /**
-   * Update unread badge in sidebar
-   */
   updateUnreadBadge() {
     const count = this.state.unreadChats.size;
     const badge = document.getElementById('nav-unread-badge');
@@ -3724,7 +3278,6 @@ class WhatsAppBOTApp {
   }
 }
 
-// Initialize
 let app;
 document.addEventListener('DOMContentLoaded', () => {
   app = new WhatsAppBOTApp();

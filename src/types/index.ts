@@ -1,5 +1,3 @@
-import type { proto } from '@whiskeysockets/baileys';
-
 export interface SessionState {
   isConnected: boolean;
   isConnecting: boolean;
@@ -23,7 +21,7 @@ export interface IncomingMessage {
   isGroup: boolean;
   isRead?: boolean;
   isFromMe?: boolean;
-  fromMe?: boolean;  // Alias for isFromMe - client compatibility
+  fromMe?: boolean;
   mediaUrl?: string;
   mimetype?: string;
   fileName?: string;
@@ -333,3 +331,95 @@ export interface RateLimitConfig {
   maxRequests: number;
 }
 
+export interface TerminalLogEntry {
+  id: number;
+  timestamp: string;
+  level: 'info' | 'warn' | 'error' | 'debug';
+  category: string;
+  message: string;
+  data?: Record<string, unknown>;
+}
+
+export interface SystemStats {
+  platform: string;
+  arch: string;
+  nodeVersion: string;
+  uptime: number;
+  memory: {
+    total: number;
+    free: number;
+    used: number;
+    usagePercent: number;
+  };
+  cpu: {
+    cores: number;
+    model: string;
+    loadAvg: number[];
+  };
+}
+
+export interface WhatsAppStats {
+  isConnected: boolean;
+  isConnecting: boolean;
+  qrAttempts: number;
+  maxQrAttempts: number;
+  reconnectAttempts: number;
+  maxReconnectAttempts: number;
+  connectionStartTime: string | null;
+  lastConnected: string | null;
+  session: {
+    jid: string;
+    name: string;
+    phone: string;
+  } | null;
+}
+
+export interface QueueStats {
+  totalJobs: number;
+  activeJobs: number;
+  completedJobs: number;
+  failedJobs: number;
+  cancelledJobs: number;
+  totalPendingMessages: number;
+  jobs: Array<{
+    jobId: string;
+    status: string;
+    total: number;
+    success: number;
+    failed: number;
+    pending: number;
+    progress: number;
+  }>;
+}
+
+export interface MessageStats {
+  totalChats: number;
+  totalMessages: number;
+  chats: Array<{
+    jid: string;
+    messageCount: number;
+    lastMessageTime: string | null;
+  }>;
+}
+
+export interface ServerStats {
+  timestamp: string;
+  server: {
+    uptime: number;
+    uptimeFormatted: string;
+    environment: string;
+    port: number;
+  };
+  system: SystemStats;
+  whatsapp: WhatsAppStats;
+  queue: QueueStats;
+  messages: MessageStats;
+  health: {
+    status: 'healthy' | 'degraded' | 'unhealthy';
+    checks: {
+      whatsapp: boolean;
+      queue: boolean;
+      memory: boolean;
+    };
+  };
+}

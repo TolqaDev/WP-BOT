@@ -1,15 +1,7 @@
 import { Request, Response } from 'express';
 import logger, { logEventBus } from '../utils/logger';
 import { ResponseFormatter } from '../views/ResponseFormatter';
-
-interface TerminalLogEntry {
-  id: number;
-  timestamp: string;
-  level: 'info' | 'warn' | 'error' | 'debug';
-  category: string;
-  message: string;
-  data?: Record<string, unknown>;
-}
+import type { TerminalLogEntry } from '../types';
 
 export class TerminalController {
   private logCounter = 0;
@@ -32,7 +24,6 @@ export class TerminalController {
         data: logData.data,
       };
 
-      // Store in history buffer
       this.logHistory.push(entry);
       if (this.logHistory.length > this.maxHistorySize) {
         this.logHistory.shift();
@@ -59,7 +50,6 @@ export class TerminalController {
     res.setHeader('Connection', 'keep-alive');
     res.setHeader('X-Accel-Buffering', 'no');
 
-    // Send connection established event
     res.write(`data: ${JSON.stringify({
       id: 0,
       timestamp: new Date().toISOString(),
@@ -69,7 +59,6 @@ export class TerminalController {
       data: { connectedClients: this.sseClients.size + 1, historyCount: this.logHistory.length },
     })}\n\n`);
 
-    // Send all history logs to the new client
     for (const entry of this.logHistory) {
       try {
         if (!res.writableEnded) {

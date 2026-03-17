@@ -5,90 +5,7 @@ import queueService from '../services/QueueService';
 import messageService from '../services/MessageService';
 import { ResponseFormatter } from '../views/ResponseFormatter';
 import logger from '../utils/logger';
-
-interface SystemStats {
-  platform: string;
-  arch: string;
-  nodeVersion: string;
-  uptime: number;
-  memory: {
-    total: number;
-    free: number;
-    used: number;
-    usagePercent: number;
-  };
-  cpu: {
-    cores: number;
-    model: string;
-    loadAvg: number[];
-  };
-}
-
-interface WhatsAppStats {
-  isConnected: boolean;
-  isConnecting: boolean;
-  qrAttempts: number;
-  maxQrAttempts: number;
-  reconnectAttempts: number;
-  maxReconnectAttempts: number;
-  connectionStartTime: string | null;
-  lastConnected: string | null;
-  session: {
-    jid: string;
-    name: string;
-    phone: string;
-  } | null;
-}
-
-interface QueueStats {
-  totalJobs: number;
-  activeJobs: number;
-  completedJobs: number;
-  failedJobs: number;
-  cancelledJobs: number;
-  totalPendingMessages: number;
-  jobs: Array<{
-    jobId: string;
-    status: string;
-    total: number;
-    success: number;
-    failed: number;
-    pending: number;
-    progress: number;
-  }>;
-}
-
-interface MessageStats {
-  totalChats: number;
-  totalMessages: number;
-  chats: Array<{
-    jid: string;
-    messageCount: number;
-    lastMessageTime: string | null;
-  }>;
-}
-
-interface ServerStats {
-  timestamp: string;
-  server: {
-    uptime: number;
-    uptimeFormatted: string;
-    environment: string;
-    port: number;
-  };
-  system: SystemStats;
-  whatsapp: WhatsAppStats;
-  queue: QueueStats;
-  messages: MessageStats;
-  health: {
-    status: 'healthy' | 'degraded' | 'unhealthy';
-    checks: {
-      whatsapp: boolean;
-      queue: boolean;
-      memory: boolean;
-    };
-  };
-}
+import type { SystemStats, WhatsAppStats, QueueStats, MessageStats, ServerStats } from '../types';
 
 export class StatsController {
   private startTime: Date;
@@ -109,7 +26,6 @@ export class StatsController {
       );
     }
   }
-
 
   private collectStats(): ServerStats {
     const now = new Date();
@@ -242,7 +158,7 @@ export class StatsController {
   ): ServerStats['health'] {
     const checks = {
       whatsapp: whatsapp.isConnected,
-      queue: true, // Queue is always available (in-memory)
+      queue: true,
       memory: system.memory.usagePercent < 90,
     };
 

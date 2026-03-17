@@ -119,9 +119,6 @@ class SettingsService {
   public get timezone(): string { return this.settings.timezone; }
   public get cacheClearInterval(): number { return this.settings.cacheClearInterval; }
 
-  /**
-   * Reload settings from .env file (useful after external .env edits)
-   */
   public reloadFromEnv(): RuntimeSettings {
     try {
       const envContent = fs.readFileSync(this.envFilePath, 'utf-8');
@@ -156,9 +153,6 @@ class SettingsService {
     return this.getSettings();
   }
 
-  /**
-   * Migrate settings from legacy settings.json to .env (one-time)
-   */
   private migrateFromLegacyFile(): void {
     const legacyPath = path.join(process.cwd(), 'public', 'settings.json');
     try {
@@ -191,9 +185,6 @@ class SettingsService {
     }
   }
 
-  /**
-   * Persist current settings to .env file
-   */
   private saveToEnv(): void {
     try {
       let envContent = '';
@@ -226,9 +217,6 @@ class SettingsService {
     }
   }
 
-  /**
-   * Sync current settings to process.env (runtime reload without restart)
-   */
   private syncProcessEnv(): void {
     process.env.TZ = this.settings.timezone;
     process.env.AUTO_READ = String(this.settings.autoRead);

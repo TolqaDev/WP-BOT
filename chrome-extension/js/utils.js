@@ -1,25 +1,11 @@
-/**
- * WhatsApp BOT Manager - Utility Functions
- * @version 2.0.0
- */
-
 const utils = {
-  /**
-   * Memoization cache for expensive operations
-   */
   _cache: new Map(),
   _cacheMaxSize: 100,
 
-  /**
-   * Clear utility cache
-   */
   clearCache() {
     this._cache.clear();
   },
 
-  /**
-   * Memoize function results
-   */
   memoize(fn, keyFn = (...args) => JSON.stringify(args)) {
     return (...args) => {
       const key = keyFn(...args);
@@ -27,7 +13,6 @@ const utils = {
         return this._cache.get(key);
       }
       const result = fn(...args);
-      // Limit cache size
       if (this._cache.size >= this._cacheMaxSize) {
         const firstKey = this._cache.keys().next().value;
         this._cache.delete(firstKey);
@@ -37,9 +22,6 @@ const utils = {
     };
   },
 
-  /**
-   * Show toast notification
-   */
   toast(message, type = 'info', duration = 3000) {
     const container = document.getElementById('toast-container');
     const toast = document.createElement('div');
@@ -51,7 +33,6 @@ const utils = {
     if (type === 'warning') icon = 'fa-exclamation-triangle';
 
     toast.innerHTML = `<i class="fas ${icon}"></i> ${this.escapeHtml(message)}`;
-    // Set progress bar duration dynamically
     toast.style.setProperty('--toast-duration', duration + 'ms');
     container.appendChild(toast);
 
@@ -63,35 +44,20 @@ const utils = {
     }, duration);
   },
 
-  /**
-   * Normalize phone number - converts various formats to standard format
-   * Examples: "+90 533 088 61 08", "++90 533 088 61 08", "5330886108" -> "905330886108"
-   */
   normalizePhone(phone) {
     if (!phone) return '';
-
-    // Remove all non-numeric characters
     let cleaned = phone.replace(/[^\d]/g, '');
-
-    // If starts with multiple zeros, remove them
     cleaned = cleaned.replace(/^0+/, '');
-
-    // If number is 10 digits and doesn't start with country code, assume Turkey (90)
     if (cleaned.length === 10 && !cleaned.startsWith('90')) {
       cleaned = '90' + cleaned;
     }
-
     return cleaned;
   },
 
-  /**
-   * Format phone number
-   */
   formatPhone(phone) {
     if (!phone) return '';
     const cleaned = phone.replace(/\D/g, '');
 
-    // Try to format as international
     if (cleaned.length >= 10) {
       const countryCode = cleaned.slice(0, -10);
       const rest = cleaned.slice(-10);
@@ -108,17 +74,11 @@ const utils = {
     return phone;
   },
 
-  /**
-   * Format JID to display format
-   */
   formatJid(jid) {
     if (!jid) return '';
     return jid.split('@')[0].split(':')[0];
   },
 
-  /**
-   * Format date/time
-   */
   formatDate(date, format = 'short') {
     if (!date) return '-';
 
@@ -156,9 +116,6 @@ const utils = {
     });
   },
 
-  /**
-   * Format uptime
-   */
   formatUptime(seconds) {
     if (!seconds || seconds < 0) return '-';
 
@@ -174,9 +131,6 @@ const utils = {
     return parts.join(' ') || '< 1dk';
   },
 
-  /**
-   * Format bytes
-   */
   formatBytes(bytes) {
     if (!bytes) return '0 B';
 
@@ -191,27 +145,18 @@ const utils = {
     return `${bytes.toFixed(1)} ${units[i]}`;
   },
 
-  /**
-   * Escape HTML
-   */
   escapeHtml(text) {
     const div = document.createElement('div');
     div.textContent = text;
     return div.innerHTML;
   },
 
-  /**
-   * Truncate text
-   */
   truncate(text, maxLength = 50) {
     if (!text) return '';
     if (text.length <= maxLength) return text;
     return text.substring(0, maxLength) + '...';
   },
 
-  /**
-   * Debounce function
-   */
   debounce(func, wait) {
     let timeout;
     return function executedFunction(...args) {
@@ -224,9 +169,6 @@ const utils = {
     };
   },
 
-  /**
-   * Throttle function - limits function calls to once per interval
-   */
   throttle(func, limit) {
     let inThrottle;
     return function executedFunction(...args) {
@@ -238,17 +180,10 @@ const utils = {
     };
   },
 
-  /**
-   * Generate random delay within range
-   */
   getRandomDelay(min, max) {
     return Math.floor(Math.random() * (max - min + 1)) + min;
   },
 
-  /**
-   * Parse recipients from textarea
-   * Handles various phone number formats: +90 533 088 61 08, 5330886108, etc.
-   */
   parseRecipients(text) {
     return text
       .split(/[\n,;]/)
@@ -258,17 +193,11 @@ const utils = {
       .filter(phone => phone.length >= 10 && phone.length <= 15);
   },
 
-  /**
-   * Create avatar element
-   */
   createAvatar(name, size = 44) {
     const initial = (name || '?').charAt(0).toUpperCase();
     return `<div class="chat-avatar" style="width: ${size}px; height: ${size}px;">${initial}</div>`;
   },
 
-  /**
-   * Get status color class
-   */
   getStatusClass(status) {
     const statusMap = {
       'active': 'active',
@@ -286,9 +215,6 @@ const utils = {
     return statusMap[status?.toLowerCase()] || 'pending';
   },
 
-  /**
-   * Format message preview
-   */
   formatMessagePreview(message) {
     if (!message) return '';
 
@@ -309,17 +235,11 @@ const utils = {
     return utils.truncate(message.content || message.message || '', 40);
   },
 
-  /**
-   * Validate phone number
-   */
   isValidPhone(phone) {
     const cleaned = phone.replace(/\D/g, '');
     return cleaned.length >= 10 && cleaned.length <= 15;
   },
 
-  /**
-   * Convert to ISO date string for datetime-local input
-   */
   toLocalISOString(date) {
     const d = new Date(date);
     const offset = d.getTimezoneOffset();
@@ -327,18 +247,12 @@ const utils = {
     return local.toISOString().slice(0, 16);
   },
 
-  /**
-   * Get minimum datetime for scheduling (1 minute from now)
-   */
   getMinScheduleDate() {
     const date = new Date();
     date.setMinutes(date.getMinutes() + 1);
     return this.toLocalISOString(date);
   },
 
-  /**
-   * Show/hide element
-   */
   show(element) {
     if (typeof element === 'string') {
       element = document.getElementById(element) || document.querySelector(element);
@@ -361,10 +275,6 @@ const utils = {
     }
   },
 
-  /**
-   * Initialize responsive tooltip positioning
-   * Tooltips use position:fixed and are positioned via JS to stay within viewport
-   */
   initTooltips() {
     document.addEventListener('mouseover', (e) => {
       const tooltip = e.target.closest('.info-tooltip');
@@ -376,7 +286,6 @@ const utils = {
       const viewW = document.documentElement.clientWidth || 720;
       const viewH = document.documentElement.clientHeight || 580;
 
-      // Calculate left: prefer aligning to icon, but clamp to viewport
       let left = rect.left;
       if (left + tooltipWidth > viewW - tooltipPad) {
         left = viewW - tooltipWidth - tooltipPad;
@@ -385,9 +294,7 @@ const utils = {
         left = tooltipPad;
       }
 
-      // Calculate top: prefer below icon, if no room then above
       let top = rect.bottom + 6;
-      // Approximate tooltip height
       const approxHeight = 60;
       if (top + approxHeight > viewH - tooltipPad) {
         top = rect.top - approxHeight - 6;
@@ -401,9 +308,6 @@ const utils = {
     });
   },
 
-  /**
-   * Set loading state on button
-   */
   setLoading(button, loading, text = null) {
     if (typeof button === 'string') {
       button = document.getElementById(button);
@@ -422,11 +326,6 @@ const utils = {
     }
   },
 
-  /**
-   * Show custom confirm dialog (Chrome Extension popup doesn't support native confirm())
-   * @param {string} message - Confirmation message
-   * @returns {Promise<boolean>} - true if confirmed, false if cancelled
-   */
   showConfirm(message) {
     return new Promise((resolve) => {
       const backdrop = document.getElementById('confirm-backdrop');
@@ -436,7 +335,6 @@ const utils = {
       const cancelBtn = document.getElementById('confirm-cancel-btn');
 
       if (!backdrop || !dialog) {
-        // Fallback: try native confirm (works in some contexts)
         resolve(window.confirm(message));
         return;
       }

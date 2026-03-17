@@ -12,7 +12,6 @@ import authMiddleware from '../middlewares/auth';
 
 const router = Router();
 
-// Health check — no auth required, accessible at /api/health
 router.get('/health', (_req, res) => {
   res.status(200).json({
     status: 'ok',
@@ -24,22 +23,18 @@ router.get('/health', (_req, res) => {
 
 router.use(authMiddleware);
 
-// SSE
 router.get('/auth/qr/stream', authController.streamQR.bind(authController));
 router.get('/messages/stream', messageController.streamMessages.bind(messageController));
 router.get('/terminal/stream', terminalController.streamTerminal.bind(terminalController));
 
-// Terminal
 router.delete('/terminal/logs', terminalController.clearLogs.bind(terminalController));
 
-// Auth
 router.get('/auth/qr', asyncHandler(authController.getQR.bind(authController)));
 router.get('/auth/qr/image', asyncHandler(authController.getQRImage.bind(authController)));
 router.get('/auth/status', asyncHandler(authController.getStatus.bind(authController)));
 router.post('/auth/logout', asyncHandler(authController.logout.bind(authController)));
 router.post('/auth/cancel', asyncHandler(authController.cancelConnection.bind(authController)));
 
-// Messages
 router.post(
   '/messages/send',
   requireConnection,
@@ -70,7 +65,6 @@ router.post(
 );
 router.get('/messages/stats', messageController.getChatStats.bind(messageController));
 
-// Scheduled Messages
 router.post(
   '/messages/schedule',
   requireConnection,
@@ -83,11 +77,9 @@ router.put('/messages/scheduled/:id', messageController.updateScheduledMessage.b
 router.delete('/messages/scheduled/completed', messageController.clearCompletedScheduled.bind(messageController));
 router.delete('/messages/scheduled/:id', messageController.cancelScheduledMessage.bind(messageController));
 
-// Cache
 router.delete('/messages/cache/:jid', asyncHandler(messageController.clearChatCache.bind(messageController)));
 router.delete('/messages/cache', asyncHandler(messageController.clearAllCache.bind(messageController)));
 
-// Bulk
 router.post(
   '/bulk/send',
   requireConnection,
@@ -103,7 +95,6 @@ router.post('/bulk/cancel/:jobId', bulkController.cancel.bind(bulkController));
 router.delete('/bulk/job/:jobId', bulkController.delete.bind(bulkController));
 router.delete('/bulk/completed', bulkController.clearCompleted.bind(bulkController));
 
-// Settings & Stats
 router.get('/settings', settingsController.getSettings.bind(settingsController));
 router.put('/settings', settingsController.updateSettings.bind(settingsController));
 router.post('/settings/reload', settingsController.reloadSettings.bind(settingsController));

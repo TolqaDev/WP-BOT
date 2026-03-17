@@ -158,7 +158,6 @@ class MessageService {
       }
     }
 
-    // Retry configuration
     const maxRetries = 3;
     const retryDelay = 2000;
 
@@ -205,7 +204,6 @@ class MessageService {
           };
         }
 
-        // Send the message
         let result: SendMessageResult;
 
         if (type === 'text') {
@@ -222,7 +220,6 @@ class MessageService {
           result = await whatsAppService.sendMedia(jid, mediaOptions);
         }
 
-        // Check if send failed due to connection
         if (!result.success && result.error?.includes('not connected')) {
           if (attempt < maxRetries) {
             logger.warn({ attempt, error: result.error }, 'Message send connection error, retrying...');
@@ -289,7 +286,6 @@ class MessageService {
     totalPages: number;
     source: 'local' | 'store' | 'combined';
   }> {
-    // Check for group JID
     if (this.isGroupJid(jid)) {
       return {
         messages: [],
@@ -301,34 +297,26 @@ class MessageService {
     }
 
     const formattedJid = this.formatJid(jid);
-
-    // Get local history
     const localHistory = this.messageHistory.get(formattedJid) || [];
 
-    // Get store history (sync now)
     let storeHistory: IncomingMessage[] = [];
     try {
-      storeHistory = whatsAppService.fetchMessageHistory(jid, 500); // Get more from store
+      storeHistory = whatsAppService.fetchMessageHistory(jid, 500);
     } catch (error) {
       logger.debug({ error, jid }, 'Failed to get store history');
     }
 
-    // Combine and deduplicate
     const combinedMap = new Map<string, IncomingMessage>();
 
-    // Add store messages first
     for (const msg of storeHistory) {
       combinedMap.set(msg.id, msg);
     }
 
-    // Add local messages (overwrite if exists - local is more recent)
     for (const msg of localHistory) {
       combinedMap.set(msg.id, msg);
     }
 
     const combined = Array.from(combinedMap.values());
-
-    // Sort by timestamp descending (newest first)
     const sorted = combined.sort((a, b) => b.timestamp.getTime() - a.timestamp.getTime());
 
     const total = sorted.length;
@@ -362,7 +350,6 @@ class MessageService {
 
     const chatMap = new Map<string, ChatInfo>();
 
-    // First, add chats from WhatsApp store
     try {
       const storeChats = whatsAppService.getChatsFromStore();
       if (storeChats && Array.isArray(storeChats)) {
@@ -376,9 +363,7 @@ class MessageService {
       logger.debug('Failed to get store chats');
     }
 
-    // Add local chats
     for (const [jid, messages] of this.messageHistory.entries()) {
-      // Skip group chats
       if (this.isGroupJid(jid)) {
         continue;
       }
@@ -409,7 +394,6 @@ class MessageService {
         countryCode: extractedCountryCode || undefined,
       };
 
-      // Only add if not already in map or if local has more recent data
       const existing = chatMap.get(jid);
       if (!existing || (chatInfo.lastMessageAt && (!existing.lastMessageAt || chatInfo.lastMessageAt > existing.lastMessageAt))) {
         chatMap.set(jid, chatInfo);
@@ -418,7 +402,6 @@ class MessageService {
 
     let chats = Array.from(chatMap.values());
 
-    // Apply filters
     if (archived !== undefined) {
       chats = chats.filter(c => c.isArchived === archived);
     }
@@ -455,9 +438,7 @@ class MessageService {
       chats = chats.filter(c => c.lastMessageAt && c.lastMessageAt <= end);
     }
 
-    // Sort
     chats.sort((a, b) => {
-      // Pinned chats always first
       if (a.isPinned && !b.isPinned) return -1;
       if (!a.isPinned && b.isPinned) return 1;
 
@@ -480,7 +461,6 @@ class MessageService {
       return sortOrder === 'desc' ? comparison : -comparison;
     });
 
-    // Pagination
     const total = chats.length;
     const totalPages = Math.ceil(total / limit);
     const startIndex = (page - 1) * limit;
@@ -541,6 +521,11 @@ class MessageService {
     setTimeout(async () => {
       try { await whatsAppService.sendPresenceUpdate(jid, 'paused'); } catch { /* ignore */ }
     }, duration);
+  }
+
+  public async sendPresenceUpdate(jid: string, type: 'composing' | 'paused'): Promise<void> {
+    if (this.isGroupJid(jid)) throw new Error('Group profiles not supported');
+    await whatsAppService.sendPresenceUpdate(jid, type);
   }
 
   public getChatStats(): {
@@ -642,3 +627,4 @@ class MessageService {
 }
 
 export default MessageService.getInstance();
+

@@ -108,7 +108,7 @@ export class AuthController {
 
     const safeWrite = (data: string) => {
       if (!isEnded && !res.writableEnded) {
-        try { res.write(data); } catch { /* connection closed */ }
+        try { res.write(data); } catch { }
       }
     };
 
@@ -116,21 +116,19 @@ export class AuthController {
       if (!isEnded && !res.writableEnded) {
         isEnded = true;
         cleanup();
-        try { res.end(); } catch { /* connection closed */ }
+        try { res.end(); } catch { }
       }
     };
 
     const state = whatsAppService.getState();
     logger.info({ isConnected: state.isConnected, isConnecting: state.isConnecting, hasQR: !!state.qrCode }, 'QR stream requested');
 
-    // Already connected - send status and close
     if (state.isConnected) {
       safeWrite(`data: ${JSON.stringify({ type: 'connected', session: whatsAppService.getSessionInfo() })}\n\n`);
       safeEnd();
       return;
     }
 
-    // Send waiting status while connection initializes
     safeWrite(`data: ${JSON.stringify({ type: 'waiting', message: 'Initializing connection...' })}\n\n`);
 
     const qrHandler = (qr: string) => {
@@ -179,33 +177,25 @@ export class AuthController {
       }
     };
 
-    // Register event listeners BEFORE starting connection
     whatsAppService.on('qr', qrHandler);
     whatsAppService.on('connected', connectedHandler);
     whatsAppService.on('disconnected', disconnectedHandler);
     whatsAppService.on('reconnecting', reconnectingHandler);
 
-    // --- ALWAYS ensure a connection attempt is started ---
-    // If already connecting (e.g. auto-reconnect), cancel it first so we get a clean QR cycle.
     const liveState = whatsAppService.getState();
     if (liveState.isConnecting) {
       logger.info('Active connection attempt detected, cancelling for fresh QR generation');
-      // Temporarily remove disconnect listener so cancel-induced event doesn't reach client
       whatsAppService.removeListener('disconnected', disconnectedHandler);
       try {
         await whatsAppService.cancelConnection();
         await new Promise(resolve => setTimeout(resolve, 300));
       } catch {
-        // ignore cancel errors
       }
-      // Re-register disconnect listener for the new connection
       whatsAppService.on('disconnected', disconnectedHandler);
     }
 
-    // Now start a fresh connection — this MUST happen for QR to be generated
     logger.info('Starting WhatsApp connection for QR generation...');
     try {
-      // Do NOT await — let it run in background so SSE stream stays responsive
       const connectPromise = whatsAppService.connect();
       connectPromise.then(() => {
         logger.info('connect() resolved, waiting for Baileys QR/connection events');
@@ -220,14 +210,12 @@ export class AuthController {
       return;
     }
 
-    // If QR is already available, send it immediately
     const postConnectState = whatsAppService.getState();
     if (postConnectState.qrCode) {
       logger.debug('QR already available, sending immediately');
       safeWrite(`data: ${JSON.stringify({ type: 'qr', qrCode: postConnectState.qrCode })}\n\n`);
     }
 
-    // If connected (e.g. credentials worked instantly), notify and close
     if (postConnectState.isConnected) {
       safeWrite(`data: ${JSON.stringify({ type: 'connected', session: whatsAppService.getSessionInfo() })}\n\n`);
       connectionConfirmed = true;
@@ -240,7 +228,6 @@ export class AuthController {
 
     req.on('close', () => { isEnded = true; cleanup(); });
 
-    // Global timeout — 160 seconds
     setTimeout(() => {
       safeWrite(`data: ${JSON.stringify({ type: 'timeout' })}\n\n`);
       safeEnd();

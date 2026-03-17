@@ -18,9 +18,6 @@ setInterval(() => {
   }
 }, 60000);
 
-/**
- * Standard rate limiter for all API endpoints
- */
 export const rateLimiter = (
   req: Request,
   res: Response,
@@ -61,11 +58,9 @@ export const rateLimiter = (
   next();
 };
 
-// More aggressive rate limiting for specific endpoints
 export const strictRateLimiter = (maxRequests: number, windowMs: number) => {
   const strictCounts = new Map<string, RateLimitEntry>();
 
-  // Cleanup old entries periodically
   setInterval(() => {
     const now = Date.now();
     for (const [key, entry] of strictCounts.entries()) {
