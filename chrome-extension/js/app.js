@@ -1853,12 +1853,24 @@ class WhatsAppBOTApp {
     });
 
     const chatItem = document.querySelector(`.chat-item[data-jid="${jid}"]`);
-    const name = chatItem?.querySelector('.chat-item-name')?.textContent || utils.formatJid(jid);
-    const initial = (name || '?').charAt(0).toUpperCase();
+    let name = chatItem?.querySelector('.chat-item-name')?.textContent || utils.formatJid(jid);
+    let initial = (name || '?').charAt(0).toUpperCase();
 
     document.getElementById('chat-header-name').textContent = name;
     document.getElementById('chat-header-status').textContent = 'yükleniyor...';
     document.getElementById('chat-header-avatar').textContent = initial;
+
+    // Yeni sohbetlerde isim yerine numara görünmesin, profil bilgisini çek
+    if (!chatItem) {
+      api.getProfile(jid).then(profile => {
+        if (profile.success && profile.data && profile.data.name) {
+          name = profile.data.name;
+          initial = name.charAt(0).toUpperCase();
+          document.getElementById('chat-header-name').textContent = name;
+          document.getElementById('chat-header-avatar').textContent = initial;
+        }
+      }).catch(() => {});
+    }
 
     const messagesContainer = document.getElementById('chat-messages');
 
@@ -2076,6 +2088,11 @@ class WhatsAppBOTApp {
       input.disabled = true;
 
       const time = new Date().toLocaleTimeString('tr-TR', { hour: '2-digit', minute: '2-digit' });
+
+      // "Henüz mesaj yok" uyarısını kaldır
+      const emptyState = messagesContainer.querySelector('.chats-empty');
+      if (emptyState) emptyState.remove();
+
       const tempMsg = document.createElement('div');
       tempMsg.className = 'message-bubble outgoing';
       tempMsg.innerHTML = `
@@ -2098,6 +2115,9 @@ class WhatsAppBOTApp {
       if (response.success) {
         tempMsg.querySelector('.message-status').innerHTML = '<i class="fas fa-check"></i>';
         tempMsg.querySelector('.message-status').classList.remove('sending');
+
+        // Sohbet listesini güncelle (yeni sohbet hemen görünsün)
+        this.loadChats();
       } else {
         throw new Error(response.message || 'Mesaj gönderilemedi');
       }
