@@ -28,23 +28,14 @@ export class BulkController {
           res.status(400).json(ResponseFormatter.badRequest('message is required for text messages'));
           return;
         }
-      } else {
-        if (!payload.mediaUrl && !payload.mediaBase64) {
-          res.status(400).json(ResponseFormatter.badRequest('mediaUrl or mediaBase64 is required for media messages'));
-          return;
-        }
+      } else if (!payload.mediaUrl && !payload.mediaBase64 && !(payload.mediaItems && payload.mediaItems.length)) {
+        res.status(400).json(ResponseFormatter.badRequest('mediaUrl, mediaBase64 veya mediaItems gerekli'));
+        return;
       }
 
-      if (payload.timeWindow) {
-        const timeRegex = /^([01]?[0-9]|2[0-3]):([0-5][0-9])$/;
-        if (!payload.timeWindow.startTime || !timeRegex.test(payload.timeWindow.startTime)) {
-          res.status(400).json(ResponseFormatter.badRequest('Invalid startTime format. Use HH:mm (e.g., 09:00)'));
-          return;
-        }
-        if (!payload.timeWindow.endTime || !timeRegex.test(payload.timeWindow.endTime)) {
-          res.status(400).json(ResponseFormatter.badRequest('Invalid endTime format. Use HH:mm (e.g., 18:00)'));
-          return;
-        }
+      if (payload.mediaItems && payload.mediaItems.length > 5) {
+        res.status(400).json(ResponseFormatter.badRequest('En fazla 5 dosya gönderilebilir'));
+        return;
       }
 
       if (payload.scheduledAt) {

@@ -2,10 +2,9 @@ import { Request, Response } from 'express';
 import os from 'os';
 import whatsAppService from '../services/WhatsAppService';
 import queueService from '../services/QueueService';
-import messageService from '../services/MessageService';
 import { ResponseFormatter } from '../views/ResponseFormatter';
 import logger from '../utils/logger';
-import type { SystemStats, WhatsAppStats, QueueStats, MessageStats, ServerStats } from '../types';
+import type { SystemStats, WhatsAppStats, QueueStats, ServerStats } from '../types';
 
 export class StatsController {
   private startTime: Date;
@@ -34,7 +33,6 @@ export class StatsController {
     const system = this.getSystemInfo();
     const whatsapp = this.getWhatsAppInfo();
     const queue = this.getQueueInfo();
-    const messages = this.getMessageInfo();
     const health = this.getHealthStatus(system, whatsapp);
 
     return {
@@ -48,7 +46,6 @@ export class StatsController {
       system,
       whatsapp,
       queue,
-      messages,
       health,
     };
   }
@@ -129,26 +126,6 @@ export class StatsController {
       cancelledJobs,
       totalPendingMessages: queueService.getQueueSize(),
       jobs: allJobs,
-    };
-  }
-
-  private getMessageInfo(): MessageStats {
-    const chatsResponse = messageService.getAllChats();
-    let totalMessages = 0;
-
-    const chatStats = chatsResponse.items.map(chat => {
-      totalMessages += chat.messageCount;
-      return {
-        jid: chat.jid,
-        messageCount: chat.messageCount,
-        lastMessageTime: chat.lastMessage?.timestamp.toISOString() || null,
-      };
-    });
-
-    return {
-      totalChats: chatsResponse.total,
-      totalMessages,
-      chats: chatStats,
     };
   }
 

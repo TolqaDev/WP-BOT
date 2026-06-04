@@ -3,7 +3,7 @@ import { randomUUID } from 'crypto';
 import config from '../config';
 import logger from '../utils/logger';
 import whatsAppService from './WhatsAppService';
-import settingsService from './SettingsService';
+import { formatJid } from '../utils/jid';
 import type {
   QueueItem,
   BulkJob,
@@ -12,7 +12,6 @@ import type {
   BulkRecipientStatus,
   QueueItemStatus,
   BulkSendPayload,
-  TimeWindow,
   MessageType,
 } from '../types';
 
@@ -73,29 +72,29 @@ class QueueService extends EventEmitter {
       }
     }
 
-    if (payload.timeWindow) {
-      this.validateTimeWindow(payload.timeWindow.startTime, payload.timeWindow.endTime);
-    }
-
     const messageType: MessageType = payload.type || 'text';
+    const mediaItems = payload.mediaItems;
+
+    if (mediaItems && mediaItems.length > 5) {
+      throw new Error('En fazla 5 dosya gönderilebilir.');
+    }
 
     if (messageType === 'text') {
       if (!payload.message) {
         throw new Error('message field is required for text messages.');
       }
-    } else {
-      if (!payload.mediaUrl && !payload.mediaBase64) {
-        throw new Error('mediaUrl or mediaBase64 is required for media messages.');
-      }
+    } else if (!payload.mediaUrl && !payload.mediaBase64 && !(mediaItems && mediaItems.length)) {
+      throw new Error('mediaUrl, mediaBase64 veya mediaItems gerekli.');
     }
 
+    // NOT: mediaBase64 (büyük olabilir) öğelere KOPYALANMAZ; yalnız job'da bir kez
+    // tutulur (bellek şişmesin). processItem base64'ü job'dan okur. İş bitince silinir.
     const items: QueueItem[] = payload.recipients.map((jid) => ({
       id: randomUUID(),
-      jid: this.formatJid(jid),
+      jid: formatJid(jid),
       message: payload.message,
       type: messageType,
       mediaUrl: payload.mediaUrl,
-      mediaBase64: payload.mediaBase64,
       caption: payload.caption,
       fileName: payload.fileName,
       mimetype: payload.mimetype,
@@ -110,15 +109,11 @@ class QueueService extends EventEmitter {
       status: scheduledAt ? 'scheduled' : 'queued',
       createdAt: now,
       scheduledAt,
-      timeWindow: payload.timeWindow ? {
-        startTime: payload.timeWindow.startTime,
-        endTime: payload.timeWindow.endTime,
-        timezone: settingsService.timezone,
-      } : undefined,
       messageType,
       message: payload.message,
       mediaUrl: payload.mediaUrl,
       mediaBase64: payload.mediaBase64,
+      mediaItems,
       caption: payload.caption,
       fileName: payload.fileName,
       mimetype: payload.mimetype,
@@ -142,7 +137,6 @@ class QueueService extends EventEmitter {
       totalRecipients: payload.recipients.length,
       messageType,
       scheduledAt: scheduledAt?.toISOString(),
-      timeWindow: payload.timeWindow,
     }, 'Bulk job created');
 
     if (scheduledAt) {
@@ -152,110 +146,6 @@ class QueueService extends EventEmitter {
     }
 
     return job;
-  }
-
-  private formatJid(jid: string): string {
-    if (jid.includes('@s.whatsapp.net')) {
-      const parts = jid.split('@');
-      const phone = parts[0].split(':')[0];
-      return `${phone}@s.whatsapp.net`;
-    }
-
-    if (jid.includes('@g.us')) {
-      return jid;
-    }
-
-    let cleaned = jid.replace(/[^\d]/g, '');
-    cleaned = cleaned.replace(/^0+/, '');
-
-    if (cleaned.length === 10 && !cleaned.startsWith('90')) {
-      cleaned = '90' + cleaned;
-    }
-
-    return `${cleaned}@s.whatsapp.net`;
-  }
-
-  private validateTimeWindow(startTime: string, endTime: string): void {
-    const timeRegex = /^([01]?[0-9]|2[0-3]):([0-5][0-9])$/;
-
-    if (!timeRegex.test(startTime)) {
-      throw new Error('Invalid startTime format. Use HH:mm format (e.g., 09:00)');
-    }
-
-    if (!timeRegex.test(endTime)) {
-      throw new Error('Invalid endTime format. Use HH:mm format (e.g., 18:00)');
-    }
-  }
-
-  private isWithinTimeWindow(timeWindow: TimeWindow): boolean {
-    const timezone = timeWindow.timezone || settingsService.timezone;
-
-    const now = new Date();
-    let currentTimeStr: string;
-    try {
-      currentTimeStr = now.toLocaleTimeString('en-GB', {
-        timeZone: timezone,
-        hour: '2-digit',
-        minute: '2-digit',
-        hour12: false
-      });
-    } catch {
-      currentTimeStr = now.toLocaleTimeString('en-GB', {
-        hour: '2-digit',
-        minute: '2-digit',
-        hour12: false
-      });
-    }
-
-    const [currentHour, currentMinute] = currentTimeStr.split(':').map(Number);
-    const [startHour, startMinute] = timeWindow.startTime.split(':').map(Number);
-    const [endHour, endMinute] = timeWindow.endTime.split(':').map(Number);
-
-    const currentMinutes = currentHour * 60 + currentMinute;
-    const startMinutes = startHour * 60 + startMinute;
-    const endMinutes = endHour * 60 + endMinute;
-
-    if (startMinutes > endMinutes) {
-      return currentMinutes >= startMinutes || currentMinutes < endMinutes;
-    }
-
-    return currentMinutes >= startMinutes && currentMinutes < endMinutes;
-  }
-
-  private getTimeUntilWindowOpens(timeWindow: TimeWindow): number {
-    const timezone = timeWindow.timezone || settingsService.timezone;
-
-    const now = new Date();
-    let currentTimeStr: string;
-    try {
-      currentTimeStr = now.toLocaleTimeString('en-GB', {
-        timeZone: timezone,
-        hour: '2-digit',
-        minute: '2-digit',
-        hour12: false
-      });
-    } catch {
-      currentTimeStr = now.toLocaleTimeString('en-GB', {
-        hour: '2-digit',
-        minute: '2-digit',
-        hour12: false
-      });
-    }
-
-    const [currentHour, currentMinute] = currentTimeStr.split(':').map(Number);
-    const [startHour, startMinute] = timeWindow.startTime.split(':').map(Number);
-
-    const currentMinutes = currentHour * 60 + currentMinute;
-    const startMinutes = startHour * 60 + startMinute;
-
-    let minutesUntilStart: number;
-    if (currentMinutes < startMinutes) {
-      minutesUntilStart = startMinutes - currentMinutes;
-    } else {
-      minutesUntilStart = (24 * 60 - currentMinutes) + startMinutes;
-    }
-
-    return minutesUntilStart * 60 * 1000;
   }
 
   private scheduleJobStart(job: BulkJob): void {
@@ -329,7 +219,6 @@ class QueueService extends EventEmitter {
       typingDuration: job.typingDuration,
       minDelay: job.minDelay,
       maxDelay: job.maxDelay,
-      timeWindow: job.timeWindow,
     };
   }
 
@@ -430,6 +319,7 @@ class QueueService extends EventEmitter {
     job.status = 'cancelled';
     job.completedAt = new Date();
     job.isPaused = false;
+    job.mediaBase64 = undefined; // medya içeriğini bellekten sil
 
     this.emit('jobCancelled', jobId);
     logger.info({ jobId }, 'Bulk job cancelled');
@@ -478,26 +368,6 @@ class QueueService extends EventEmitter {
 
       if (job.isPaused || job.status === 'paused') {
         await this.delay(1000);
-        continue;
-      }
-
-      if (job.timeWindow && !this.isWithinTimeWindow(job.timeWindow)) {
-        job.isPaused = true;
-        job.pauseReason = `Outside time window (${job.timeWindow.startTime} - ${job.timeWindow.endTime})`;
-        job.status = 'paused';
-
-        const waitTime = this.getTimeUntilWindowOpens(job.timeWindow);
-        logger.info({
-          jobId: job.jobId,
-          waitTimeMinutes: Math.round(waitTime / 60000)
-        }, 'Job paused - outside time window');
-
-        setTimeout(() => {
-          if (job.status === 'paused' && job.pauseReason?.includes('time window')) {
-            this.resumeJob(job.jobId);
-          }
-        }, waitTime);
-
         continue;
       }
 
@@ -574,13 +444,32 @@ class QueueService extends EventEmitter {
 
       let result;
 
-      if (item.type === 'text') {
+      if (job.mediaItems && job.mediaItems.length > 0) {
+        // Çoklu dosya: her dosya ayrı mesaj olarak sırayla gider; açıklama
+        // yalnız ilk dosyaya eklenir. Hepsi başarılıysa öğe tamamlanmış sayılır.
+        let lastMessageId: string | undefined;
+        for (let i = 0; i < job.mediaItems.length; i++) {
+          const mi = job.mediaItems[i];
+          const r = await whatsAppService.sendMedia(item.jid, {
+            type: mi.type,
+            url: mi.mediaUrl,
+            base64: mi.mediaBase64,
+            caption: i === 0 ? item.caption : undefined,
+            fileName: mi.fileName,
+            mimetype: mi.mimetype,
+          });
+          if (!r.success) { result = r; break; }
+          lastMessageId = r.messageId;
+          if (i < job.mediaItems.length - 1) await this.delay(800); // dosyalar arası kısa bekleme
+        }
+        if (!result) result = { success: true, messageId: lastMessageId };
+      } else if (item.type === 'text') {
         result = await whatsAppService.sendMessage(item.jid, item.message || '');
       } else {
         result = await whatsAppService.sendMedia(item.jid, {
           type: item.type,
           url: item.mediaUrl,
-          base64: item.mediaBase64,
+          base64: job.mediaBase64, // base64 yalnız job'da tutulur (öğelere kopyalanmaz)
           caption: item.caption,
           fileName: item.fileName,
           mimetype: item.mimetype,
@@ -644,6 +533,8 @@ class QueueService extends EventEmitter {
       job.status = 'completed';
       job.completedAt = new Date();
       job.isPaused = false;
+      // Gönderim bitti: medya içeriğini bellekten sil (diske hiç yazılmadı).
+      job.mediaBase64 = undefined;
 
       const stats = this.getJobStats(job.jobId);
       if (stats) {
@@ -700,13 +591,6 @@ class QueueService extends EventEmitter {
             logger.info({ jobId: job.jobId }, 'Starting scheduled bulk job');
             job.status = 'queued';
             this.startProcessing();
-          }
-        }
-
-        if (job.status === 'paused' && job.timeWindow && job.pauseReason?.includes('time window')) {
-          if (this.isWithinTimeWindow(job.timeWindow)) {
-            logger.info({ jobId: job.jobId }, 'Time window opened, resuming job');
-            this.resumeJob(job.jobId);
           }
         }
       }

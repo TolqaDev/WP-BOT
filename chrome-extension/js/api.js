@@ -12,8 +12,6 @@ class WhatsAppAPI {
     this.baseUrl = '';
     this.apiKey = '';
     this.eventSource = null;
-    this.messageEventSource = null;
-    this.chatEventSource = null;
     this.terminalEventSource = null;
 
     this.lastKnownState = {
@@ -24,19 +22,15 @@ class WhatsAppAPI {
       cachedStatus: null,
     };
 
-    this.sseRetryConfig = {
-      maxRetries: WhatsAppAPI.CONFIG.SSE_MAX_RETRIES,
-      retryDelay: WhatsAppAPI.CONFIG.SSE_RETRY_DELAY,
-      currentRetry: 0,
-    };
-
     this._pendingRequests = new Map();
   }
 
   async init() {
     return new Promise((resolve) => {
       chrome.storage.local.get(['apiUrl', 'apiKey'], (result) => {
-        this.baseUrl = (result.apiUrl || 'http://localhost:3000').replace(/\/api\/?$/, '').replace(/\/+$/, '');
+        // Sunucu yapılandırılmadıysa baseUrl BOŞ kalır; varsayılan localhost'a
+        // düşmeyiz, böylece kullanıcı sunucu eklemeden hiçbir istek atılmaz.
+        this.baseUrl = result.apiUrl ? result.apiUrl.replace(/\/api\/?$/, '').replace(/\/+$/, '') : '';
         this.apiKey = result.apiKey || '';
         resolve();
       });
@@ -58,7 +52,7 @@ class WhatsAppAPI {
     return new Promise((resolve) => {
       chrome.storage.local.get(['apiUrl', 'apiKey'], (result) => {
         resolve({
-          apiUrl: (result.apiUrl || 'http://localhost:3000').replace(/\/api\/?$/, '').replace(/\/+$/, ''),
+          apiUrl: result.apiUrl ? result.apiUrl.replace(/\/api\/?$/, '').replace(/\/+$/, '') : '',
           apiKey: result.apiKey || ''
         });
       });
@@ -66,6 +60,11 @@ class WhatsAppAPI {
   }
 
   async request(endpoint, options = {}) {
+    // Sunucu yapılandırılmadıysa hiç istek atma (gereksiz /auth/status vb. önlenir).
+    if (!this.baseUrl) {
+      throw new Error('Sunucu yapılandırılmadı. Lütfen önce bir sunucu ekleyin.');
+    }
+
     const url = `${this.baseUrl}/api${endpoint}`;
     const timeout = options.timeout || WhatsAppAPI.CONFIG.DEFAULT_TIMEOUT;
     const cacheKey = options.method === 'GET' ? `${options.method || 'GET'}:${url}` : null;
@@ -139,6 +138,13 @@ class WhatsAppAPI {
     return this.request('/auth/qr');
   }
 
+  async requestPairingCode(phoneNumber) {
+    return this.request('/auth/pairing-code', {
+      method: 'POST',
+      body: JSON.stringify({ phoneNumber })
+    });
+  }
+
   async logout() {
     return this.request('/auth/logout', { method: 'POST' });
   }
@@ -147,10 +153,19 @@ class WhatsAppAPI {
     return this.request('/auth/cancel', { method: 'POST' });
   }
 
+  async reconnect() {
+    return this.request('/auth/reconnect', { method: 'POST' });
+  }
+
   startQRStream(onQR, onConnected, onError, onDisconnected, onTimeout, onReconnecting) {
     if (this.eventSource) {
       this.eventSource.close();
       this.eventSource = null;
+    }
+
+    if (!this.baseUrl) {
+      if (onError) onError(new Error('Sunucu yapılandırılmadı. Lütfen önce bir sunucu ekleyin.'));
+      return;
     }
 
     let url = `${this.baseUrl}/api/auth/qr/stream`;
@@ -340,263 +355,6 @@ class WhatsAppAPI {
     }
   }
 
-  startMessageStream(onMessage, onInit, onError) {
-    if (this.messageEventSource) {
-      this.messageEventSource.close();
-    }
-
-    if (!this.lastKnownState.isConnected) {
-      console.warn('Message stream not started: WhatsApp is not connected');
-      if (onError) onError(new Error('WhatsApp is not connected'));
-      return;
-    }
-
-    let url = `${this.baseUrl}/api/messages/stream`;
-    if (this.apiKey) {
-      url += `?api_key=${encodeURIComponent(this.apiKey)}`;
-    }
-
-    let lastHeartbeat = Date.now();
-    let heartbeatCheckInterval = null;
-    let reconnectTimeout = null;
-
-    const startHeartbeatCheck = () => {
-      if (heartbeatCheckInterval) clearInterval(heartbeatCheckInterval);
-      heartbeatCheckInterval = setInterval(() => {
-        if (Date.now() - lastHeartbeat > 60000) {
-          console.warn('No heartbeat for 60s, checking connection...');
-          this.verifyConnectionStatus().then(status => {
-            if (status.isConnected && this.messageEventSource?.readyState !== EventSource.OPEN) {
-              console.log('Reconnecting message stream...');
-              this.stopMessageStream();
-              setTimeout(() => {
-                this.startMessageStream(onMessage, onInit, onError);
-              }, 1000);
-            }
-          }).catch(() => {});
-        }
-      }, 30000);
-    };
-
-    const cleanup = () => {
-      if (heartbeatCheckInterval) {
-        clearInterval(heartbeatCheckInterval);
-        heartbeatCheckInterval = null;
-      }
-      if (reconnectTimeout) {
-        clearTimeout(reconnectTimeout);
-        reconnectTimeout = null;
-      }
-    };
-
-    this.messageEventSource = new EventSource(url);
-
-    let msgStreamHasReceived = false;
-
-    this.messageEventSource.onopen = () => {
-      console.log('Message stream connected');
-      this.sseRetryConfig.currentRetry = 0;
-      msgStreamHasReceived = true;
-      startHeartbeatCheck();
-    };
-
-    this.messageEventSource.onmessage = (event) => {
-      msgStreamHasReceived = true;
-      try {
-        const data = JSON.parse(event.data);
-
-        switch (data.type) {
-          case 'init':
-            if (onInit) onInit(data);
-            break;
-          case 'message':
-            if (onMessage) onMessage(data.data);
-            break;
-          case 'connected':
-            this.lastKnownState.isConnected = true;
-            this.lastKnownState.isConnecting = false;
-            if (onInit) onInit({ isConnected: true, session: data.session });
-            break;
-          case 'disconnected':
-            if (data.isConnecting) {
-              console.log('Disconnected event received but reconnecting, ignoring...');
-              this.lastKnownState.isConnecting = true;
-              break;
-            }
-
-            this.verifyConnectionStatus().then(status => {
-              if (!status.isConnected && !status.isConnecting) {
-                this.lastKnownState.isConnected = false;
-                this.lastKnownState.isConnecting = false;
-                if (onInit) onInit({ isConnected: false, reason: data.reason });
-              }
-            }).catch(() => {
-              this.lastKnownState.isConnected = false;
-              if (onInit) onInit({ isConnected: false, reason: data.reason });
-            });
-            break;
-          case 'reconnecting':
-            console.log('Reconnecting event received:', data);
-            this.lastKnownState.isConnecting = true;
-            this.lastKnownState.isConnected = false;
-            break;
-          case 'heartbeat':
-            lastHeartbeat = Date.now();
-            break;
-        }
-      } catch (e) {
-        console.error('Message SSE parse error:', e);
-      }
-    };
-
-    this.messageEventSource.onerror = (error) => {
-      console.error('Message SSE error:', error);
-      cleanup();
-
-      if (!msgStreamHasReceived) {
-        console.error('Message stream failed: server unreachable');
-        if (onError) onError(new Error('Sunucu erişilemiyor'));
-        this.stopMessageStream();
-        return;
-      }
-
-      if (this.sseRetryConfig.currentRetry < this.sseRetryConfig.maxRetries) {
-        this.sseRetryConfig.currentRetry++;
-        console.log(`SSE error, will retry (${this.sseRetryConfig.currentRetry}/${this.sseRetryConfig.maxRetries})`);
-
-        reconnectTimeout = setTimeout(() => {
-          this.verifyConnectionStatus().then(status => {
-            if (status.isConnected) {
-              this.stopMessageStream();
-              this.startMessageStream(onMessage, onInit, onError);
-            } else {
-              if (onInit) onInit({ isConnected: false, reason: 'SSE connection lost' });
-            }
-          }).catch(() => {
-            if (onError) onError(error);
-            this.stopMessageStream();
-          });
-        }, this.sseRetryConfig.retryDelay * this.sseRetryConfig.currentRetry);
-      } else {
-        console.error('Max SSE retries reached');
-        if (onError) onError(error);
-        this.stopMessageStream();
-      }
-    };
-  }
-
-  isMessageStreamActive() {
-    return this.messageEventSource !== null && this.messageEventSource.readyState === EventSource.OPEN;
-  }
-
-  stopMessageStream() {
-    if (this.messageEventSource) {
-      this.messageEventSource.close();
-      this.messageEventSource = null;
-    }
-  }
-
-  startChatStream(jid, onMessage, onInit, onError) {
-    if (this.chatEventSource) {
-      this.chatEventSource.close();
-    }
-
-    if (!this.lastKnownState.isConnected) {
-      console.warn('Chat stream not started: WhatsApp is not connected');
-      if (onError) onError(new Error('WhatsApp is not connected'));
-      return;
-    }
-
-    let url = `${this.baseUrl}/api/messages/stream?jid=${encodeURIComponent(jid)}`;
-    if (this.apiKey) {
-      url += `&api_key=${encodeURIComponent(this.apiKey)}`;
-    }
-
-    let chatRetryCount = 0;
-    const maxChatRetries = 3;
-    let reconnectTimer = null;
-
-    const cleanup = () => {
-      if (reconnectTimer) {
-        clearTimeout(reconnectTimer);
-        reconnectTimer = null;
-      }
-    };
-
-    this.chatEventSource = new EventSource(url);
-
-    let chatHasReceived = false;
-
-    this.chatEventSource.onopen = () => {
-      console.log('Chat stream connected for:', jid);
-      chatRetryCount = 0;
-      chatHasReceived = true;
-    };
-
-    this.chatEventSource.onmessage = (event) => {
-      chatHasReceived = true;
-      try {
-        const data = JSON.parse(event.data);
-
-        switch (data.type) {
-          case 'init':
-            if (onInit) onInit(data);
-            break;
-          case 'message':
-            if (onMessage) onMessage(data.data);
-            break;
-          case 'sent':
-            if (onMessage) onMessage({ ...data.data, fromMe: true });
-            break;
-          case 'heartbeat':
-            break;
-        }
-      } catch (e) {
-        console.error('Chat SSE parse error:', e);
-      }
-    };
-
-    this.chatEventSource.onerror = (error) => {
-      console.error('Chat SSE error:', error);
-      cleanup();
-
-      if (!chatHasReceived) {
-        console.error('Chat stream failed: server unreachable');
-        if (onError) onError(new Error('Sunucu erişilemiyor'));
-        this.stopChatStream();
-        return;
-      }
-
-      if (chatRetryCount < maxChatRetries) {
-        chatRetryCount++;
-        console.log(`Chat SSE error, will retry (${chatRetryCount}/${maxChatRetries})`);
-
-        reconnectTimer = setTimeout(() => {
-          if (this.lastKnownState.isConnected) {
-            this.stopChatStream();
-            this.startChatStream(jid, onMessage, onInit, onError);
-          } else {
-            if (onError) onError(error);
-          }
-        }, 2000 * chatRetryCount);
-      } else {
-        if (onError) onError(error);
-        this.stopChatStream();
-      }
-    };
-  }
-
-  isChatStreamActive() {
-    return this.chatEventSource !== null && this.chatEventSource.readyState === EventSource.OPEN;
-  }
-
-  stopChatStream() {
-    if (this.chatEventSource) {
-      this.chatEventSource.close();
-      this.chatEventSource = null;
-    }
-  }
-
   async sendMessage(jid, message, type = 'text', mediaOptions = {}) {
     const payload = {
       jid,
@@ -610,6 +368,7 @@ class WhatsAppAPI {
       payload.mediaBase64 = mediaOptions.mediaBase64;
       payload.caption = mediaOptions.caption;
       payload.fileName = mediaOptions.fileName;
+      payload.mimetype = mediaOptions.mimetype;
     }
 
     return this.request('/messages/send', {
@@ -618,56 +377,10 @@ class WhatsAppAPI {
     });
   }
 
-  async getMessageHistory(jid, limit = 50, page = 1) {
-    return this.request(`/messages/history/${encodeURIComponent(jid)}?limit=${limit}&page=${page}`);
-  }
-
-  async getChats(filters = {}) {
-    const params = new URLSearchParams();
-
-    if (filters.archived !== undefined) params.append('archived', filters.archived);
-    if (filters.unread) params.append('unread', 'true');
-    if (filters.search) params.append('search', filters.search);
-    if (filters.page) params.append('page', filters.page);
-    if (filters.limit) params.append('limit', filters.limit);
-
-    return this.request(`/messages/chats?${params.toString()}`);
-  }
-
-  async checkNumber(phone) {
-    return this.request(`/messages/check/${encodeURIComponent(phone)}`);
-  }
-
-  async getProfile(jid) {
-    return this.request(`/messages/profile/${encodeURIComponent(jid)}`);
-  }
-
   async sendTyping(jid, type = 'composing') {
     return this.request(`/messages/typing/${encodeURIComponent(jid)}`, {
       method: 'POST',
       body: JSON.stringify({ type })
-    });
-  }
-
-  async markAsRead(jid) {
-    return this.request(`/messages/read/${encodeURIComponent(jid)}`, {
-      method: 'POST'
-    });
-  }
-
-  async getChatStats() {
-    return this.request('/messages/stats');
-  }
-
-  async clearChatCache(jid) {
-    return this.request(`/messages/cache/${encodeURIComponent(jid)}`, {
-      method: 'DELETE'
-    });
-  }
-
-  async clearAllCaches() {
-    return this.request('/messages/cache', {
-      method: 'DELETE'
     });
   }
 
@@ -682,7 +395,10 @@ class WhatsAppAPI {
       payload.message = message;
     } else {
       payload.mediaUrl = mediaOptions.mediaUrl;
+      payload.mediaBase64 = mediaOptions.mediaBase64;
       payload.caption = mediaOptions.caption;
+      payload.fileName = mediaOptions.fileName;
+      payload.mimetype = mediaOptions.mimetype;
     }
 
     return this.request('/messages/schedule', {
@@ -730,11 +446,10 @@ class WhatsAppAPI {
       payload.message = message;
     } else {
       payload.mediaUrl = options.mediaUrl;
+      payload.mediaBase64 = options.mediaBase64;
       payload.caption = options.caption;
-    }
-
-    if (options.timeWindow) {
-      payload.timeWindow = options.timeWindow;
+      payload.fileName = options.fileName;
+      payload.mimetype = options.mimetype;
     }
 
     if (options.scheduledAt) {
@@ -794,8 +509,20 @@ class WhatsAppAPI {
     return this.request('/stats');
   }
 
+  async validateNumbers(phones) {
+    return this.request('/messages/validate', {
+      method: 'POST',
+      body: JSON.stringify({ phones })
+    });
+  }
+
   startTerminalStream(onLog, onOpen, onError) {
     this.stopTerminalStream();
+
+    if (!this.baseUrl) {
+      if (onError) onError(new Error('Sunucu yapılandırılmadı'));
+      return;
+    }
 
     let url = `${this.baseUrl}/api/terminal/stream`;
     if (this.apiKey) {

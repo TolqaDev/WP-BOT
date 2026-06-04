@@ -9,13 +9,13 @@ export interface RuntimeSettings {
   autoRead: boolean;
   notify: boolean;
   callReject: { enabled: boolean };
-  cacheClearInterval: number;
+  /** "yazıyor..." gösterme süresi (ms). Mesaj göndermeden önce uygulanır. */
+  typingDuration: number;
 }
 
 class SettingsService {
   private static instance: SettingsService;
   private settings: RuntimeSettings;
-  private autoCacheClearTimer: NodeJS.Timeout | null = null;
   private readonly envFilePath: string;
 
   private constructor() {
@@ -26,7 +26,7 @@ class SettingsService {
       autoRead: config.whatsapp.autoRead,
       notify: config.whatsapp.notify,
       callReject: { enabled: config.whatsapp.callReject.enabled },
-      cacheClearInterval: config.cacheClearInterval,
+      typingDuration: config.whatsapp.typingDuration,
     };
 
     this.migrateFromLegacyFile();
@@ -36,7 +36,6 @@ class SettingsService {
     }
 
     logger.info({ settings: this.getSettings() }, 'SettingsService initialized');
-    this.restartAutoCacheClear();
   }
 
   public static getInstance(): SettingsService {
@@ -52,7 +51,7 @@ class SettingsService {
       autoRead: this.settings.autoRead,
       notify: this.settings.notify,
       callReject: { ...this.settings.callReject },
-      cacheClearInterval: this.settings.cacheClearInterval,
+      typingDuration: this.settings.typingDuration,
     };
   }
 
@@ -72,7 +71,7 @@ class SettingsService {
     autoRead: boolean;
     notify: boolean;
     callReject: Partial<{ enabled: boolean }>;
-    cacheClearInterval: number;
+    typingDuration: number;
   }>): RuntimeSettings {
     const oldSettings = this.getSettings();
 
@@ -102,10 +101,9 @@ class SettingsService {
       logger.info({ oldValue: oldSettings.callReject.enabled, newValue: updates.callReject.enabled }, 'Call reject updated');
     }
 
-    if (updates.cacheClearInterval !== undefined) {
-      this.settings.cacheClearInterval = updates.cacheClearInterval;
-      logger.info({ oldValue: oldSettings.cacheClearInterval, newValue: updates.cacheClearInterval }, 'Cache clear interval updated');
-      this.restartAutoCacheClear();
+    if (updates.typingDuration !== undefined) {
+      this.settings.typingDuration = updates.typingDuration;
+      logger.info({ oldValue: oldSettings.typingDuration, newValue: updates.typingDuration }, 'Typing duration updated');
     }
 
     this.saveToEnv();
@@ -117,7 +115,7 @@ class SettingsService {
   public get notify(): boolean { return this.settings.notify; }
   public get callRejectEnabled(): boolean { return this.settings.callReject.enabled; }
   public get timezone(): string { return this.settings.timezone; }
-  public get cacheClearInterval(): number { return this.settings.cacheClearInterval; }
+  public get typingDuration(): number { return this.settings.typingDuration; }
 
   public reloadFromEnv(): RuntimeSettings {
     try {
@@ -140,13 +138,12 @@ class SettingsService {
       if (parsed.AUTO_REJECT_CALLS !== undefined) {
         this.settings.callReject.enabled = parsed.AUTO_REJECT_CALLS.toLowerCase() === 'true';
       }
-      if (parsed.CACHE_CLEAR_INTERVAL !== undefined) {
-        this.settings.cacheClearInterval = parseInt(parsed.CACHE_CLEAR_INTERVAL, 10) || 0;
+      if (parsed.TYPING_DURATION !== undefined) {
+        this.settings.typingDuration = parseInt(parsed.TYPING_DURATION, 10) || 0;
       }
 
       this.syncProcessEnv();
       logger.info('Settings reloaded from .env file');
-      this.restartAutoCacheClear();
     } catch (error) {
       logger.warn({ error }, 'Failed to reload settings from .env');
     }
@@ -173,8 +170,8 @@ class SettingsService {
       if (saved.callReject?.enabled !== undefined) {
         this.settings.callReject.enabled = saved.callReject.enabled;
       }
-      if (saved.cacheClearInterval !== undefined) {
-        this.settings.cacheClearInterval = saved.cacheClearInterval;
+      if (saved.typingDuration !== undefined) {
+        this.settings.typingDuration = saved.typingDuration;
       }
 
       this.saveToEnv();
@@ -197,7 +194,7 @@ class SettingsService {
         'AUTO_READ': String(this.settings.autoRead),
         'NOTIFY': String(this.settings.notify),
         'AUTO_REJECT_CALLS': String(this.settings.callReject.enabled),
-        'CACHE_CLEAR_INTERVAL': String(this.settings.cacheClearInterval),
+        'TYPING_DURATION': String(this.settings.typingDuration),
       };
 
       for (const [key, value] of Object.entries(envUpdates)) {
@@ -222,29 +219,7 @@ class SettingsService {
     process.env.AUTO_READ = String(this.settings.autoRead);
     process.env.NOTIFY = String(this.settings.notify);
     process.env.AUTO_REJECT_CALLS = String(this.settings.callReject.enabled);
-    process.env.CACHE_CLEAR_INTERVAL = String(this.settings.cacheClearInterval);
-  }
-
-  private restartAutoCacheClear(): void {
-    if (this.autoCacheClearTimer) {
-      clearInterval(this.autoCacheClearTimer);
-      this.autoCacheClearTimer = null;
-    }
-
-    const intervalMinutes = this.settings.cacheClearInterval;
-    if (intervalMinutes <= 0) return;
-
-    this.autoCacheClearTimer = setInterval(() => {
-      try {
-        const messageService = require('./MessageService').default;
-        const result = messageService.clearAllCaches();
-        logger.info({ clearedChats: result.clearedChats, clearedMessages: result.clearedMessages, intervalMinutes }, 'Auto cache clear completed');
-      } catch (error) {
-        logger.error({ error }, 'Auto cache clear failed');
-      }
-    }, intervalMinutes * 60 * 1000);
-
-    logger.info({ intervalMinutes }, 'Auto cache clear timer started');
+    process.env.TYPING_DURATION = String(this.settings.typingDuration);
   }
 }
 

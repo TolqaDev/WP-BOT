@@ -33,12 +33,7 @@
         <div class="sidebar-brand"><i class="fab fa-whatsapp"></i></div>
       </div>
       <nav class="sidebar-nav">
-        <button class="sidebar-nav-item active" data-tab="chats" title="Sohbetler">
-          <i class="fas fa-comments"></i>
-          <span>Sohbetler</span>
-          <span class="nav-badge hidden" id="nav-unread-badge">0</span>
-        </button>
-        <button class="sidebar-nav-item" data-tab="messaging" title="Gönderim">
+        <button class="sidebar-nav-item active" data-tab="messaging" title="Gönderim">
           <i class="fas fa-paper-plane"></i>
           <span>Gönderim</span>
         </button>
@@ -63,7 +58,7 @@
       <!-- ── TOP BAR ── -->
       <header class="topbar">
         <div class="topbar-left">
-          <h1 id="page-title" class="topbar-title">Sohbetler</h1>
+          <h1 id="page-title" class="topbar-title">Gönderim</h1>
         </div>
         <div class="topbar-right">
           <div id="connection-status" class="conn-pill disconnected">
@@ -73,17 +68,22 @@
         </div>
       </header>
 
+      <!-- ── ŞİFRELEME UYARISI (kalıcı) ── -->
+      <div id="encryption-alert" class="enc-alert hidden">
+        <i class="fas fa-triangle-exclamation enc-alert-icon"></i>
+        <div class="enc-alert-text">
+          <strong>Şifreleme hatası algılandı</strong>
+          <span>Mesajlar karşı tarafta "Mesaj bekleniyor, bu işlem biraz zaman alabilir" durumunda kalabilir. Çözüm: bağlantıyı yenileyin.</span>
+        </div>
+        <button id="enc-alert-reconnect" class="btn btn-sm"><i class="fas fa-rotate"></i> Yeniden Bağlan</button>
+      </div>
+
       <!-- ── CONTENT AREA ── -->
       <main class="content-area">
 
         <!-- ═══ CONNECTION OVERLAY ═══ -->
         <section id="connection-overlay" class="connection-overlay active">
           <div class="connection-overlay-inner">
-            <button class="api-trigger" id="api-settings-trigger" title="API Ayarları">
-              <span class="api-trigger-dot" id="api-trigger-dot"></span>
-              <i class="fas fa-cog"></i>
-              <span>API</span>
-            </button>
             <div class="qr-card">
               <div class="qr-card-header">
                 <div class="qr-icon-wrap"><i class="fab fa-whatsapp"></i></div>
@@ -101,8 +101,29 @@
                 <button id="connect-btn" class="btn btn-glow btn-lg">
                   <i class="fas fa-plug"></i> Bağlantıyı Başlat
                 </button>
+                <button id="pairing-toggle-btn" class="pairing-link">
+                  <i class="fas fa-keyboard"></i> Telefon numarası ile bağlan
+                </button>
               </div>
-              <div class="qr-steps">
+
+              <!-- ── KOD İLE BAĞLANMA (pairing) ── -->
+              <div id="pairing-panel" class="pairing-panel hidden">
+                <p class="pairing-desc">QR okutamıyorsanız telefon numaranızla bağlanın</p>
+                <div class="pairing-input-row">
+                  <span class="prefix">+</span>
+                  <input type="text" id="pairing-phone" placeholder="905551234567" inputmode="numeric" spellcheck="false" autocomplete="off">
+                  <button id="pairing-code-btn" class="btn btn-primary btn-sm"><i class="fas fa-key"></i> Kod Al</button>
+                </div>
+                <div id="pairing-code-result" class="pairing-code-result hidden">
+                  <span class="pairing-code-label">WhatsApp'ta bu kodu girin</span>
+                  <div class="pairing-code-value" id="pairing-code-value">––––––––</div>
+                  <small>WhatsApp &gt; Bağlı Cihazlar &gt; Cihaz bağla &gt; "Telefon numarası ile bağla"</small>
+                  <button id="pairing-refresh-btn" class="pairing-link"><i class="fas fa-rotate"></i> Kodu yenile</button>
+                </div>
+                <button id="pairing-back-btn" class="pairing-link"><i class="fas fa-qrcode"></i> QR kod ile bağlan</button>
+              </div>
+
+              <div class="qr-steps" id="qr-steps">
                 <div class="qr-step"><span class="step-num">1</span><span>WhatsApp'ı Aç</span></div>
                 <div class="qr-step-line"></div>
                 <div class="qr-step"><span class="step-num">2</span><span>Bağlı Cihazlar</span></div>
@@ -165,79 +186,8 @@
           </div>
         </div>
 
-        <!-- ═══════════════ CHATS TAB ═══════════════ -->
-        <section id="tab-chats" class="tab-content active">
-          <div class="chats-container">
-            <div class="chats-list-panel" id="chats-list-panel">
-              <div class="chats-toolbar">
-                <div class="search-box"><i class="fas fa-search"></i><input type="text" id="chat-search" placeholder="Sohbet ara..."></div>
-                <button class="icon-btn accent" id="new-chat-btn" title="Yeni Sohbet"><i class="fas fa-plus"></i></button>
-              </div>
-              <div class="chat-filter-tabs">
-                <button class="chat-filter-tab active" data-filter="all">Tümü</button>
-                <button class="chat-filter-tab" data-filter="unread">Okunmamış <span class="filter-badge hidden" id="unread-count">0</span></button>
-              </div>
-              <div class="chats-scroll" id="chats-list"><div class="chats-empty"><i class="fas fa-comments"></i><p>Sohbet bulunamadı</p></div></div>
-            </div>
-            <div class="chat-view-panel" id="chat-view-panel">
-              <div class="chat-welcome" id="chat-welcome">
-                <div class="welcome-blob"></div>
-                <div class="welcome-icon"><i class="fab fa-whatsapp"></i></div>
-                <h2>WhatsApp BOT Manager</h2>
-                <p>Sohbet başlatmak için listeden seçim yapın veya yeni sohbet başlatın</p>
-                <button class="btn btn-primary" id="welcome-new-chat-btn"><i class="fas fa-plus"></i> Yeni Sohbet</button>
-              </div>
-              <div class="chat-active-view hidden" id="chat-active-view">
-                <div class="chat-header">
-                  <button class="back-btn" id="chat-back-btn"><i class="fas fa-arrow-left"></i></button>
-                  <div class="chat-header-avatar" id="chat-header-avatar">A</div>
-                  <div class="chat-header-info">
-                    <span class="chat-header-name" id="chat-header-name">İsim</span>
-                    <span class="chat-header-status" id="chat-header-status">son görülme</span>
-                  </div>
-                  <div class="chat-header-actions">
-                    <button class="icon-btn" id="chat-clear-cache-btn" title="Sohbet Önbelleğini Temizle"><i class="fas fa-broom"></i></button>
-                    <button class="icon-btn" id="chat-close-btn" title="Kapat"><i class="fas fa-times"></i></button>
-                  </div>
-                </div>
-                <div class="chat-messages" id="chat-messages"></div>
-                <div class="chat-input">
-                  <div class="message-input-wrapper"><textarea id="chat-message-input" placeholder="Mesaj yazın..." rows="1"></textarea></div>
-                  <button class="send-btn" id="chat-send-btn" title="Gönder"><i class="fas fa-paper-plane"></i></button>
-                </div>
-              </div>
-              <div class="new-chat-panel hidden" id="new-chat-panel">
-                <div class="new-chat-header">
-                  <button class="back-btn" id="new-chat-back-btn"><i class="fas fa-arrow-left"></i></button>
-                  <h3>Yeni Sohbet</h3>
-                </div>
-                <div class="new-chat-content">
-                  <div class="new-chat-illustration"><i class="fas fa-user-plus"></i></div>
-                  <p class="new-chat-desc">WhatsApp'ta kayıtlı bir numara ile sohbet başlatın</p>
-                  <div class="new-chat-form">
-                    <div class="phone-input-group">
-                      <span class="phone-country">+</span>
-                      <input type="text" id="new-chat-phone" placeholder="905551234567" class="phone-input">
-                      <button type="button" class="phone-check-btn" id="new-chat-check-btn" title="Kontrol Et"><i class="fas fa-search"></i></button>
-                    </div>
-                    <div class="phone-check-result" id="new-chat-result"></div>
-                  </div>
-                  <div class="profile-card hidden" id="new-chat-profile">
-                    <div class="profile-card-avatar" id="new-chat-avatar"><i class="fas fa-user"></i></div>
-                    <div class="profile-card-info">
-                      <span class="profile-card-phone" id="new-chat-profile-phone"></span>
-                      <span class="profile-card-status" id="new-chat-profile-status">WhatsApp Kullanıcısı</span>
-                    </div>
-                    <button class="btn btn-primary profile-card-action" id="start-chat-btn"><i class="fas fa-comments"></i> Sohbet Başlat</button>
-                  </div>
-                </div>
-              </div>
-            </div>
-          </div>
-        </section>
-
         <!-- ═══════════════ MESSAGING TAB ═══════════════ -->
-        <section id="tab-messaging" class="tab-content">
+        <section id="tab-messaging" class="tab-content active">
           <div class="messaging-layout">
             <div class="messaging-form-panel">
               <div class="messaging-tabs">
@@ -249,17 +199,44 @@
                 <div class="form-section"><label><i class="fas fa-clock"></i> Gönderim <span class="info-tooltip" data-tooltip="Mesajı hemen veya ileri tarihte gönderin."><i class="fas fa-info-circle"></i></span></label><div class="schedule-toggle"><button type="button" class="schedule-option active" data-schedule="now"><i class="fas fa-bolt"></i> Şimdi</button><button type="button" class="schedule-option" data-schedule="later"><i class="fas fa-calendar-alt"></i> Zamanla</button></div><div class="schedule-datetime hidden" id="single-schedule-datetime"><input type="datetime-local" id="single-datetime"></div></div>
                 <div class="form-section"><label><i class="fas fa-file-alt"></i> Tip</label><div class="type-selector"><button type="button" class="type-option active" data-type="text"><i class="fas fa-font"></i></button><button type="button" class="type-option" data-type="image"><i class="fas fa-image"></i></button><button type="button" class="type-option" data-type="video"><i class="fas fa-video"></i></button><button type="button" class="type-option" data-type="document"><i class="fas fa-file"></i></button></div></div>
                 <div class="form-section" id="single-text-section"><label><i class="fas fa-comment"></i> Mesaj <span class="label-count">(<span id="single-char-count">0</span> kr)</span></label><textarea id="single-message" rows="3" placeholder="Mesajınızı yazın..."></textarea></div>
-                <div class="form-section hidden" id="single-media-section"><label><i class="fas fa-link"></i> Medya URL</label><input type="text" id="single-media-url" placeholder="https://..."><input type="text" id="single-caption" placeholder="Açıklama (opsiyonel)" class="mt-1"></div>
+                <div class="form-section hidden" id="single-media-section">
+                  <label><i class="fas fa-paperclip"></i> Medya</label>
+                  <div class="media-dropzone" id="single-dropzone">
+                    <input type="file" id="single-file-input" class="hidden" multiple accept="image/*,video/*,application/pdf,.doc,.docx,.xls,.xlsx,.zip">
+                    <div class="media-dropzone-empty" id="single-dropzone-empty">
+                      <i class="fas fa-cloud-arrow-up"></i>
+                      <span>Dosyaları sürükle-bırak ya da <b>seç</b></span>
+                      <small>En fazla 5 dosya · her biri ≤ 2 MB · sunucuda saklanmaz</small>
+                    </div>
+                    <div class="media-file-list hidden" id="single-file-list"></div>
+                  </div>
+                  <div class="media-or"><span>veya URL</span></div>
+                  <input type="text" id="single-media-url" placeholder="https://...">
+                  <input type="text" id="single-caption" placeholder="Açıklama (opsiyonel)" class="mt-1">
+                </div>
                 <button type="button" class="btn btn-primary btn-block btn-send" id="single-send-btn"><i class="fas fa-paper-plane"></i> Gönder</button>
               </div>
               <div class="messaging-form hidden" id="bulk-message-form">
                 <div class="form-section"><label><i class="fas fa-users"></i> Alıcılar <span class="label-count">(<span id="recipient-count">0</span>)</span></label><textarea id="bulk-recipients" rows="3" placeholder="Her satıra bir numara:&#10;905551234567&#10;905559876543"></textarea></div>
                 <div class="form-section"><label><i class="fas fa-calendar-alt"></i> Zamanlama <span class="info-tooltip" data-tooltip="Toplu gönderim belirlediğiniz tarihte başlar."><i class="fas fa-info-circle"></i></span></label><div class="schedule-toggle"><button type="button" class="schedule-option active" data-bulk-schedule="now"><i class="fas fa-bolt"></i> Hemen</button><button type="button" class="schedule-option" data-bulk-schedule="later"><i class="fas fa-calendar-alt"></i> İleri Tarih</button></div><input type="checkbox" id="bulk-schedule-enabled" class="hidden"><div class="schedule-datetime hidden" id="bulk-schedule-datetime"><input type="datetime-local" id="bulk-start-datetime"></div></div>
-                <div class="form-section"><label><i class="fas fa-clock"></i> Saat Aralığı <span class="info-tooltip" data-tooltip="Mesajlar yalnızca belirlenen saat aralığında gönderilir."><i class="fas fa-info-circle"></i></span></label><div class="schedule-toggle"><button type="button" class="schedule-option active" data-time-window="off"><i class="fas fa-infinity"></i> Sürekli</button><button type="button" class="schedule-option" data-time-window="on"><i class="fas fa-clock"></i> Saatli</button></div><input type="checkbox" id="bulk-time-window" class="hidden"><div class="time-window-row hidden" id="time-window-group"><input type="time" id="bulk-start-time" value="09:00"><span>-</span><input type="time" id="bulk-end-time" value="18:00"></div></div>
                 <div class="form-section"><label><i class="fas fa-clock"></i> Gecikme (sn) <span class="info-tooltip" data-tooltip="Her mesaj arası rastgele bekleme süresi."><i class="fas fa-info-circle"></i></span></label><div class="delay-inline"><div class="delay-field"><span class="delay-field-label">Min</span><input type="number" id="bulk-min-delay" value="3" min="1"></div><span class="delay-sep">—</span><div class="delay-field"><span class="delay-field-label">Max</span><input type="number" id="bulk-max-delay" value="10" min="1"></div></div></div>
                 <div class="form-section"><label><i class="fas fa-file-alt"></i> Tip</label><div class="type-selector"><button type="button" class="type-option active" data-bulk-type="text"><i class="fas fa-font"></i></button><button type="button" class="type-option" data-bulk-type="image"><i class="fas fa-image"></i></button><button type="button" class="type-option" data-bulk-type="video"><i class="fas fa-video"></i></button><button type="button" class="type-option" data-bulk-type="document"><i class="fas fa-file"></i></button></div><input type="hidden" id="bulk-type" value="text"></div>
                 <div class="form-section" id="bulk-text-group"><label><i class="fas fa-comment"></i> Mesaj <span class="label-count">(<span id="bulk-char-count">0</span> kr)</span></label><textarea id="bulk-message" rows="2" placeholder="Mesajınızı yazın..."></textarea></div>
-                <div class="form-section hidden" id="bulk-media-group"><label><i class="fas fa-link"></i> Medya URL</label><input type="text" id="bulk-media-url" placeholder="https://..."><input type="text" id="bulk-caption" placeholder="Açıklama" class="mt-1"></div>
+                <div class="form-section hidden" id="bulk-media-group">
+                  <label><i class="fas fa-paperclip"></i> Medya</label>
+                  <div class="media-dropzone" id="bulk-dropzone">
+                    <input type="file" id="bulk-file-input" class="hidden" multiple accept="image/*,video/*,application/pdf,.doc,.docx,.xls,.xlsx,.zip">
+                    <div class="media-dropzone-empty" id="bulk-dropzone-empty">
+                      <i class="fas fa-cloud-arrow-up"></i>
+                      <span>Dosyaları sürükle-bırak ya da <b>seç</b></span>
+                      <small>En fazla 5 dosya · her biri ≤ 2 MB · sunucuda saklanmaz</small>
+                    </div>
+                    <div class="media-file-list hidden" id="bulk-file-list"></div>
+                  </div>
+                  <div class="media-or"><span>veya URL</span></div>
+                  <input type="text" id="bulk-media-url" placeholder="https://...">
+                  <input type="text" id="bulk-caption" placeholder="Açıklama" class="mt-1">
+                </div>
                 <button type="button" class="btn btn-primary btn-block btn-send" id="bulk-send-btn"><i class="fas fa-rocket"></i> Toplu Gönderimi Başlat</button>
               </div>
             </div>
@@ -295,8 +272,6 @@
             </div>
             <!-- Stats -->
             <div class="dash-stats">
-              <div class="dash-stat-widget"><div class="dash-stat-icon"><i class="fas fa-comments"></i></div><div class="dash-stat-body"><span class="dash-stat-value" id="stat-chats">0</span><span class="dash-stat-label">Sohbet</span></div></div>
-              <div class="dash-stat-widget"><div class="dash-stat-icon blue"><i class="fas fa-envelope"></i></div><div class="dash-stat-body"><span class="dash-stat-value" id="stat-messages">0</span><span class="dash-stat-label">Mesaj</span></div></div>
               <div class="dash-stat-widget"><div class="dash-stat-icon orange"><i class="fas fa-tasks"></i></div><div class="dash-stat-body"><span class="dash-stat-value" id="stat-jobs">0</span><span class="dash-stat-label">Aktif İş</span></div></div>
               <div class="dash-stat-widget"><div class="dash-stat-icon purple"><i class="fas fa-clock"></i></div><div class="dash-stat-body"><span class="dash-stat-value" id="stat-scheduled">0</span><span class="dash-stat-label">Zamanlı</span></div></div>
             </div>
@@ -313,7 +288,6 @@
                   <div class="health-meta">
                     <div class="health-meta-row"><i class="fas fa-clock"></i><span>Uptime</span><strong id="sys-uptime">-</strong></div>
                     <div class="health-meta-row"><i class="fas fa-shield-alt"></i><span>Durum</span><span class="system-health-badge" id="sys-health">-</span></div>
-                    <div class="health-meta-row"><i class="fas fa-paper-plane"></i><span>Gönderilen</span><strong id="wa-sent-today">0</strong></div>
                     <div class="health-meta-row"><i class="fas fa-hourglass-half"></i><span>Kuyruk</span><strong id="wa-queue-pending">0</strong></div>
                     <div class="health-meta-row"><i class="fas fa-wifi"></i><span>Bağlantı</span><strong id="wa-connection-time">-</strong></div>
                   </div>
@@ -321,101 +295,48 @@
               </div>
             </div>
 
-            <!-- Multi-Server API Management + Server Settings -->
-            <div class="dash-grid-2">
-              <!-- API Servers -->
-              <div class="dash-card">
-                <div class="dash-card-header">
-                  <h4><i class="fas fa-server"></i> Sunucu Yönetimi</h4>
-                  <button class="icon-btn-sm" id="add-server-btn" title="Yeni Sunucu Ekle"><i class="fas fa-plus"></i></button>
-                </div>
-                <div class="dash-card-body server-list-body">
-                  <div class="server-list" id="server-list">
-                    <!-- JS ile doldurulacak -->
+            <!-- Server Settings (ENV) -->
+            <div class="dash-card" id="dashboard-server-settings">
+              <div class="dash-card-header"><h4><i class="fas fa-sliders-h"></i> Sunucu Ayarları</h4><button class="icon-btn-sm" id="refresh-server-settings" title="Yenile"><i class="fas fa-sync-alt"></i></button></div>
+              <div class="dash-card-body">
+                <div class="server-settings-loading" id="dashboard-server-loading"><span class="spinner"></span> Yükleniyor...</div>
+                <div class="server-settings-content hidden" id="dashboard-server-content">
+                  <div class="setting-group">
+                    <div class="setting-group-header"><i class="fas fa-cogs"></i> Özellikler</div>
+                    <div class="setting-group-body">
+                      <label class="setting-toggle">
+                        <input type="checkbox" id="server-auto-read">
+                        <span class="setting-toggle-slider"></span>
+                        <span class="setting-toggle-label"><i class="fas fa-check-double"></i> Otomatik Okundu</span>
+                        <span class="info-tooltip" data-tooltip="Gelen mesajları otomatik olarak okundu olarak işaretler."><i class="fas fa-info-circle"></i></span>
+                      </label>
+                      <label class="setting-toggle">
+                        <input type="checkbox" id="server-notify">
+                        <span class="setting-toggle-slider"></span>
+                        <span class="setting-toggle-label"><i class="fas fa-bell"></i> Bildirim</span>
+                        <span class="info-tooltip" data-tooltip="Yeni mesaj geldiğinde masaüstü bildirimi gönderir."><i class="fas fa-info-circle"></i></span>
+                      </label>
+                      <label class="setting-toggle">
+                        <input type="checkbox" id="server-call-reject">
+                        <span class="setting-toggle-slider"></span>
+                        <span class="setting-toggle-label"><i class="fas fa-phone-slash"></i> Arama Reddet</span>
+                        <span class="info-tooltip" data-tooltip="Gelen WhatsApp aramalarını otomatik olarak reddeder."><i class="fas fa-info-circle"></i></span>
+                      </label>
+                    </div>
                   </div>
-                </div>
-              </div>
-
-              <!-- Server Settings -->
-              <div class="dash-card" id="dashboard-server-settings">
-                <div class="dash-card-header"><h4><i class="fas fa-sliders-h"></i> Sunucu Ayarları</h4><button class="icon-btn-sm" id="refresh-server-settings" title="Yenile"><i class="fas fa-sync-alt"></i></button></div>
-                <div class="dash-card-body">
-                  <div class="server-settings-loading" id="dashboard-server-loading"><span class="spinner"></span> Yükleniyor...</div>
-                  <div class="server-settings-content hidden" id="dashboard-server-content">
-                    <div class="setting-group">
-                      <div class="setting-group-header"><i class="fas fa-globe"></i> Saat Dilimi</div>
-                      <div class="setting-group-body">
-                        <select id="server-timezone" class="server-select">
-                          <option value="Europe/Istanbul">Europe/Istanbul</option>
-                          <option value="Europe/London">Europe/London</option>
-                          <option value="Europe/Berlin">Europe/Berlin</option>
-                          <option value="America/New_York">America/New_York</option>
-                          <option value="America/Los_Angeles">America/Los_Angeles</option>
-                          <option value="Asia/Dubai">Asia/Dubai</option>
-                          <option value="Asia/Tokyo">Asia/Tokyo</option>
-                          <option value="UTC">UTC</option>
-                        </select>
-                        <div class="setting-time-display"><i class="fas fa-clock"></i> <span id="server-time">-</span><button type="button" class="btn btn-outline btn-sm" id="sync-pc-time" style="margin-left:auto;padding:2px 8px;font-size:9px"><i class="fas fa-laptop"></i> PC'den Al</button></div>
+                  <div class="setting-group">
+                    <div class="setting-group-header"><i class="fas fa-keyboard"></i> Yazıyor Süresi</div>
+                    <div class="setting-group-body">
+                      <div class="typing-duration-row">
+                        <input type="range" id="typing-duration" min="0" max="10" step="1" value="4" class="typing-slider">
+                        <span class="typing-duration-value" id="typing-duration-value">4 sn</span>
+                        <span class="info-tooltip" data-tooltip="Mesaj göndermeden önce 'yazıyor...' göstergesi süresi. 0 = kapalı. Sunucuda .env'de saklanır (TYPING_DURATION)."><i class="fas fa-info-circle"></i></span>
                       </div>
                     </div>
-                    <div class="setting-group">
-                      <div class="setting-group-header"><i class="fas fa-cogs"></i> Özellikler</div>
-                      <div class="setting-group-body">
-                        <label class="setting-toggle">
-                          <input type="checkbox" id="server-auto-read">
-                          <span class="setting-toggle-slider"></span>
-                          <span class="setting-toggle-label"><i class="fas fa-check-double"></i> Otomatik Okundu</span>
-                          <span class="info-tooltip" data-tooltip="Gelen mesajları otomatik olarak okundu olarak işaretler."><i class="fas fa-info-circle"></i></span>
-                        </label>
-                        <label class="setting-toggle">
-                          <input type="checkbox" id="server-notify">
-                          <span class="setting-toggle-slider"></span>
-                          <span class="setting-toggle-label"><i class="fas fa-bell"></i> Bildirim</span>
-                          <span class="info-tooltip" data-tooltip="Yeni mesaj geldiğinde masaüstü bildirimi gönderir."><i class="fas fa-info-circle"></i></span>
-                        </label>
-                        <label class="setting-toggle">
-                          <input type="checkbox" id="server-call-reject">
-                          <span class="setting-toggle-slider"></span>
-                          <span class="setting-toggle-label"><i class="fas fa-phone-slash"></i> Arama Reddet</span>
-                          <span class="info-tooltip" data-tooltip="Gelen WhatsApp aramalarını otomatik olarak reddeder."><i class="fas fa-info-circle"></i></span>
-                        </label>
-                      </div>
-                    </div>
-                    <div class="setting-group">
-                      <div class="setting-group-header"><i class="fas fa-keyboard"></i> Yazıyor Süresi</div>
-                      <div class="setting-group-body">
-                        <div class="typing-duration-row">
-                          <input type="range" id="typing-duration" min="0" max="30" step="1" value="0" class="typing-slider">
-                          <span class="typing-duration-value" id="typing-duration-value">Kapalı</span>
-                          <span class="info-tooltip" data-tooltip="Mesaj göndermeden önce 'yazıyor...' göstergesi süresi. 0 = kapalı. Bu ayar eklentide saklanır."><i class="fas fa-info-circle"></i></span>
-                        </div>
-                      </div>
-                    </div>
-                    <div class="setting-group">
-                      <div class="setting-group-header"><i class="fas fa-database"></i> Önbellek Yönetimi</div>
-                      <div class="setting-group-body">
-                        <div class="setting-row">
-                          <label class="setting-label"><i class="fas fa-clock"></i> Otomatik Temizleme</label>
-                          <select id="server-cache-clear-interval" class="server-select">
-                            <option value="0">Kapalı</option>
-                            <option value="30">30 Dakika</option>
-                            <option value="60">1 Saat</option>
-                            <option value="360">6 Saat</option>
-                            <option value="720">12 Saat</option>
-                            <option value="1440">1 Gün</option>
-                            <option value="4320">3 Gün</option>
-                            <option value="7200">5 Gün</option>
-                            <option value="14400">10 Gün</option>
-                          </select>
-                          <span class="info-tooltip" data-tooltip="Sunucu tarafında sohbet önbelleğinin otomatik olarak temizlenme aralığı. 0 = kapalı."><i class="fas fa-info-circle"></i></span>
-                        </div>
-                        <button id="clear-all-cache-btn" class="btn btn-outline btn-sm btn-block" style="margin-top:8px;"><i class="fas fa-trash-alt"></i> Tüm Sohbet Önbelleğini Temizle</button>
-                      </div>
-                    </div>
-                    <button id="save-server-settings" class="btn btn-primary btn-sm btn-block"><i class="fas fa-save"></i> Ayarları Kaydet</button>
                   </div>
-                  <div class="server-settings-error hidden" id="dashboard-server-error"><i class="fas fa-exclamation-triangle"></i><span>Yüklenemedi</span><button id="retry-server-settings" class="btn btn-outline btn-sm">Tekrar</button></div>
+                  <button id="save-server-settings" class="btn btn-primary btn-sm btn-block"><i class="fas fa-save"></i> Ayarları Kaydet</button>
                 </div>
+                <div class="server-settings-error hidden" id="dashboard-server-error"><i class="fas fa-exclamation-triangle"></i><span>Yüklenemedi</span><button id="retry-server-settings" class="btn btn-outline btn-sm">Tekrar</button></div>
               </div>
             </div>
           </div>
@@ -449,6 +370,17 @@
       <div class="confirm-actions">
         <button class="btn btn-outline btn-sm" id="confirm-cancel-btn">İptal</button>
         <button class="btn btn-primary btn-sm" id="confirm-ok-btn">Evet</button>
+      </div>
+    </div>
+
+    <!-- Geçersiz Numaralar Popup -->
+    <div class="confirm-backdrop hidden" id="invalid-backdrop"></div>
+    <div class="confirm-dialog invalid-dialog hidden" id="invalid-dialog">
+      <div class="confirm-icon invalid-icon"><i class="fas fa-user-slash"></i></div>
+      <p class="confirm-message" id="invalid-message">Bazı numaraların WhatsApp profili yok</p>
+      <div class="invalid-list" id="invalid-list"></div>
+      <div class="confirm-actions">
+        <button class="btn btn-primary btn-sm" id="invalid-ok-btn">Tamam</button>
       </div>
     </div>
 

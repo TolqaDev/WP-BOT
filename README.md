@@ -25,16 +25,13 @@
 
 | Kategori | Özellikler |
 |----------|-----------|
-| **Bağlantı** | QR ile oturum açma (SSE real-time) · Session persistence (PM2/restart sonrası otomatik bağlanma) · Otomatik arama reddi |
-| **Mesajlaşma** | Text, resim, video, ses, doküman gönderimi · Otomatik typing göstergesi · Mesaj geçmişi (session boyunca) |
-| **Zamanlama** | İleri tarihe mesaj zamanlama · Düzenleme ve iptal · Minimum 30 sn ileri zaman kontrolü |
-| **Toplu Gönderim** | In-memory kuyruk sistemi · Rastgele gecikme (min/max) · Zaman penceresi (ör: 09:00–18:00) · Duraklat/Devam/İptal |
-| **Sohbet** | Filtreleme (okunmamış, arşivli, ülke kodu) · Arama · Arşivleme, sabitleme, sessize alma |
-| **Güvenlik** | API Key auth · Rate limiting · CORS whitelist · Grup koruması · Request tracing (X-Request-ID) |
-| **Gerçek Zamanlı** | SSE ile QR stream · SSE ile mesaj stream · Terminal log stream |
-| **Addon** | Chrome Extension ile tam yönetim paneli — QR, sohbet, gönderim, istatistik |
-
-> **⚠️ Not:** Mesaj geçmişi oturum süresince bellekte tutulur. Uygulama yeniden başlatıldığında geçmiş sıfırlanır, yeni mesajlar tekrar kaydedilir.
+| **Bağlantı** | QR veya telefon numarası (pairing kodu) ile oturum açma · Session persistence (PM2/restart sonrası otomatik bağlanma) · Otomatik arama reddi · Şifreleme hatası uyarısı + yeniden bağlanma |
+| **Mesajlaşma** | Text, resim, video, ses, doküman gönderimi · Çoklu dosya (maks 5, her biri ≤2MB) sürükle-bırak · Otomatik typing göstergesi (ENV) |
+| **Zamanlama** | İleri tarihe mesaj zamanlama · Düzenleme ve iptal · Addon'da en erken +10 dk kontrolü |
+| **Toplu Gönderim** | In-memory kuyruk sistemi · Numara doğrulama (geçersizleri ayıklama) · Rastgele gecikme (min/max) · Duraklat/Devam/İptal |
+| **Güvenlik** | API Key auth · Rate limiting · CORS · Grup koruması · Request tracing (X-Request-ID) |
+| **Gerçek Zamanlı** | SSE ile QR stream · Terminal log stream |
+| **Addon** | Chrome Extension ile yönetim paneli — QR, gönderim, istatistik |
 
 > **✅ Session Persistence:** PM2 veya sunucu restart sonrası WhatsApp oturumu korunur. Sadece `logout` endpoint'i ile oturum silinir.
 
@@ -138,13 +135,15 @@ PORT=3000
 NODE_ENV=development
 SESSION_PATH=./public/auth_info
 
-# Saat dilimi (tüm zamanlamalar ve loglar bu dilimi kullanır)
+# Saat dilimi (yalnızca .env'den yönetilir; tüm zamanlamalar/loglar bunu kullanır)
 TZ=Europe/Istanbul
 
 # WhatsApp Davranışı
 AUTO_READ=true
 NOTIFY=false
 AUTO_REJECT_CALLS=true
+# Mesaj öncesi "yazıyor..." süresi (ms). 0 = kapalı. Addon panelinden de düzenlenir.
+TYPING_DURATION=4000
 
 # Kuyruk
 QUEUE_DELAY_MS=3000
@@ -159,9 +158,6 @@ CORS_WHITE_LIST="::1, ::ffff:127.0.0.1"
 
 # API Key (boş bırakılırsa otomatik oluşturulur)
 API_KEY=
-
-# Otomatik Önbellek Temizleme (dakika, 0 = kapalı)
-CACHE_CLEAR_INTERVAL=0
 ```
 
 ---
@@ -199,34 +195,17 @@ Tüm yanıtlar standart formatta döner:
 | `GET` | `/api/auth/qr` | QR kodu al (base64) |
 | `GET` | `/api/auth/qr/image` | QR kodu PNG olarak al |
 | `GET` | `/api/auth/qr/stream` | 🔴 SSE — QR akışı (real-time) |
-| `GET` | `/api/auth/status` | Bağlantı durumu |
+| `GET` | `/api/auth/status` | Bağlantı durumu (+ `encryptionAlert`) |
 | `POST` | `/api/auth/logout` | Oturumu kapat ve session'ı sil |
 | `POST` | `/api/auth/cancel` | Bağlanma girişimini iptal et |
+| `POST` | `/api/auth/reconnect` | Oturumu silmeden bağlantıyı yenile (şifreleme kurtarma) |
 
 ### Mesajlar
 
 | Method | Endpoint | Açıklama |
 |--------|----------|----------|
 | `POST` | `/api/messages/send` | Mesaj gönder (text, image, video, audio, document) |
-| `GET` | `/api/messages/chats` | Sohbet listesi (filtreleme + sayfalama) |
-| `GET` | `/api/messages/history/:jid` | Mesaj geçmişi |
-| `GET` | `/api/messages/stats` | Sohbet istatistikleri |
-| `GET` | `/api/messages/check/:phone` | Numara WhatsApp'ta kayıtlı mı? |
-| `GET` | `/api/messages/profile/:jid` | Profil bilgisi |
-
-### Sohbet İşlemleri
-
-| Method | Endpoint | Açıklama |
-|--------|----------|----------|
 | `POST` | `/api/messages/typing/:jid` | Yazıyor göstergesi gönder |
-| `POST` | `/api/messages/read/:jid` | Okundu olarak işaretle |
-
-### Önbellek Yönetimi
-
-| Method | Endpoint | Açıklama |
-|--------|----------|----------|
-| `DELETE` | `/api/messages/cache` | Tüm sohbet önbelleğini temizle |
-| `DELETE` | `/api/messages/cache/:jid` | Belirli sohbet önbelleğini temizle |
 
 ### Zamanlanmış Mesajlar
 
@@ -258,8 +237,6 @@ Tüm yanıtlar standart formatta döner:
 | Endpoint | Açıklama |
 |----------|----------|
 | `/api/auth/qr/stream` | QR kod durumu (qr, connected, disconnected, timeout) |
-| `/api/messages/stream` | Tüm mesajlar (message, sent, connected, disconnected) |
-| `/api/messages/stream?jid=905xx` | Belirli numaranın mesajları |
 | `/api/terminal/stream` | Terminal logları (real-time) |
 
 ### Ayarlar & İstatistikler
@@ -341,48 +318,21 @@ curl -X POST http://localhost:3000/api/bulk/send \
     "maxDelay": 10000
   }'
 
-# Zaman pencereli + ileri tarihli toplu gönderim
+# İleri tarihli toplu gönderim
 curl -X POST http://localhost:3000/api/bulk/send \
   -H "Content-Type: application/json" \
   -d '{
     "recipients": ["905551111111", "905552222222"],
-    "message": "Sadece mesai saatlerinde gönderilecek",
+    "message": "İleri tarihte başlayacak",
     "minDelay": 5000,
     "maxDelay": 15000,
-    "timeWindow": { "startTime": "09:00", "endTime": "18:00" },
     "scheduledAt": "2026-02-26T09:00:00.000Z"
   }'
-```
 
-### Sohbet Filtreleme
-
-```bash
-# Tüm sohbetler
-curl http://localhost:3000/api/messages/chats
-
-# Okunmamış sohbetler
-curl "http://localhost:3000/api/messages/chats?unread=true"
-
-# Arama + sayfalama
-curl "http://localhost:3000/api/messages/chats?search=Ahmet&page=1&limit=10"
-```
-
-### SSE ile Gerçek Zamanlı Dinleme
-
-```javascript
-const es = new EventSource('http://localhost:3000/api/messages/stream');
-
-es.onmessage = (event) => {
-  const data = JSON.parse(event.data);
-  
-  switch (data.type) {
-    case 'init':       console.log('Durum:', data.isConnected); break;
-    case 'message':    console.log('Gelen:', data.data);        break;
-    case 'sent':       console.log('Gönderilen:', data.data);   break;
-    case 'connected':  console.log('WhatsApp bağlandı');        break;
-    case 'disconnected': console.log('Bağlantı kesildi');       break;
-  }
-};
+# Numara/profil kontrolü (WhatsApp hesabı var mı?)
+curl -X POST http://localhost:3000/api/messages/validate \
+  -H "Content-Type: application/json" \
+  -d '{ "phones": ["905551111111", "905552222222"] }'
 ```
 
 ---
@@ -395,14 +345,13 @@ Proje, tüm API özelliklerini görsel arayüzle kullanmanızı sağlayan bir **
 
 | Bölüm | Özellikler |
 |-------|-----------|
-| **Panel** | QR kod ile bağlanma · API ayarları · Sunucu ayarları (timezone, bildirim, otomatik okundu, arama reddi) · Sistem durumu · İstatistikler · Hızlı işlemler |
-| **Sohbetler** | WhatsApp tarzı sohbet listesi · Arama ve filtreleme (tümü, okunmamış, arşiv) · Gerçek zamanlı mesajlaşma (SSE) · Yeni sohbet başlatma · Numara kontrolü |
+| **Panel** | QR kod ile bağlanma · Sunucu ayarları (bildirim, otomatik okundu, arama reddi, yazıyor süresi — .env kaynaklı) · Sistem durumu · İstatistikler · Şifreleme hatası uyarısı + Yeniden Bağlan |
 | **Gönderim** | Tekli mesaj (hemen veya zamanlı) · Toplu mesaj (gecikme, zaman penceresi, ileri tarih) · Text / Resim / Video / Doküman desteği · Aktif iş ve zamanlı mesaj takibi |
 
 ### Akıllı Navigasyon
 
 - **API bağlantısı yoksa** → Sadece Panel sekmesi erişilebilir, diğerleri kilitli
-- **WhatsApp bağlı değilse** → Sohbetler ve Gönderim kilitli, Panel'de QR ekranı görünür
+- **WhatsApp bağlı değilse** → Gönderim kilitli, Panel'de QR ekranı görünür
 - **Bağlı olduğunda** → Tüm sekmeler açılır, Panel'de dashboard görünür
 
 ### Addon Kurulumu
@@ -432,10 +381,9 @@ Extension API'ye erişmek için API Key kullanır. `.env` dosyasında `API_KEY` 
 1. Addon'u aç → Panel sekmesi
 2. API Ayarları → URL ve Key gir → Kaydet
 3. "Bağlantıyı Başlat" → QR kodu tara
-4. Bağlantı kuruldu → Sohbetler ve Gönderim aktif
+4. Bağlantı kuruldu → Gönderim aktif
 5. Panel'den: Sunucu ayarları, istatistikler, hızlı işlemler
-6. Sohbetler'den: Mesaj geçmişi, gerçek zamanlı mesajlaşma
-7. Gönderim'den: Tekli/toplu mesaj, zamanlı gönderim
+6. Gönderim'den: Tekli/toplu mesaj, zamanlı gönderim
 ```
 
 ### Addon Sorun Giderme
