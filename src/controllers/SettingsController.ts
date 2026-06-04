@@ -22,7 +22,7 @@ export class SettingsController {
   /** PUT /api/settings */
   public updateSettings(req: Request, res: Response): void {
     try {
-      const { timezone, autoRead, notify, callReject, cacheClearInterval } = req.body;
+      const { timezone, autoRead, notify, callReject, typingDuration } = req.body;
 
       if (timezone !== undefined && typeof timezone !== 'string') {
         res.status(400).json(ResponseFormatter.badRequest('timezone must be a string (e.g., "Europe/Istanbul")'));
@@ -46,15 +46,15 @@ export class SettingsController {
           return;
         }
       }
-      if (cacheClearInterval !== undefined) {
-        if (typeof cacheClearInterval !== 'number' || cacheClearInterval < 0) {
-          res.status(400).json(ResponseFormatter.badRequest('cacheClearInterval must be a non-negative number (minutes)'));
+      if (typingDuration !== undefined) {
+        if (typeof typingDuration !== 'number' || typingDuration < 0 || typingDuration > 15000) {
+          res.status(400).json(ResponseFormatter.badRequest('typingDuration 0-15000 ms aralığında bir sayı olmalı'));
           return;
         }
       }
 
       const updatedSettings = settingsService.updateSettings({
-        timezone, autoRead, notify, callReject, cacheClearInterval,
+        timezone, autoRead, notify, callReject, typingDuration,
       });
       const timeInfo = settingsService.getTimeInfo();
 

@@ -3,7 +3,7 @@ import fs from 'fs';
 import whatsAppService from '../services/WhatsAppService';
 import { ResponseFormatter } from '../views/ResponseFormatter';
 import logger from '../utils/logger';
-import type { StatusResponse, QRResponse } from '../types';
+import type { StatusResponse, QRResponse, PairingResponse } from '../types';
 
 export class AuthController {
   /** GET /api/auth/qr/image */
@@ -182,56 +182,92 @@ export class AuthController {
     whatsAppService.on('disconnected', disconnectedHandler);
     whatsAppService.on('reconnecting', reconnectingHandler);
 
-    const liveState = whatsAppService.getState();
-    if (liveState.isConnecting) {
-      logger.info('Active connection attempt detected, cancelling for fresh QR generation');
-      whatsAppService.removeListener('disconnected', disconnectedHandler);
-      try {
-        await whatsAppService.cancelConnection();
-        await new Promise(resolve => setTimeout(resolve, 300));
-      } catch {
-      }
-      whatsAppService.on('disconnected', disconnectedHandler);
-    }
-
-    logger.info('Starting WhatsApp connection for QR generation...');
-    try {
-      const connectPromise = whatsAppService.connect();
-      connectPromise.then(() => {
-        logger.info('connect() resolved, waiting for Baileys QR/connection events');
-      }).catch(error => {
-        logger.error({ error }, 'connect() failed during QR stream');
-        safeWrite(`data: ${JSON.stringify({ type: 'error', message: 'Connection initialization failed' })}\n\n`);
-      });
-    } catch (syncError) {
-      logger.error({ error: syncError }, 'Synchronous error calling connect()');
-      safeWrite(`data: ${JSON.stringify({ type: 'error', message: 'Failed to start connection' })}\n\n`);
-      safeEnd();
-      return;
-    }
-
-    const postConnectState = whatsAppService.getState();
-    if (postConnectState.qrCode) {
-      logger.debug('QR already available, sending immediately');
-      safeWrite(`data: ${JSON.stringify({ type: 'qr', qrCode: postConnectState.qrCode })}\n\n`);
-    }
-
-    if (postConnectState.isConnected) {
-      safeWrite(`data: ${JSON.stringify({ type: 'connected', session: whatsAppService.getSessionInfo() })}\n\n`);
-      connectionConfirmed = true;
-      connectionConfirmTimeout = setTimeout(() => {
-        if (whatsAppService.getState().isConnected) {
-          safeEnd();
-        }
-      }, 5000);
-    }
-
     req.on('close', () => { isEnded = true; cleanup(); });
+
+    const liveState = whatsAppService.getState();
+    const pairingActive = whatsAppService.isPairingActive();
+
+    if (liveState.isConnecting && !pairingActive) {
+      // Zaten bir QR denemesi sürüyor → ona BAĞLAN, yeniden başlatma. Böylece
+      // deneme sayacı korunur (addon kapanıp açılınca baştan saymaz, arka birikmez).
+      logger.info('Attaching to in-progress QR flow (preserving attempt counter)');
+      if (liveState.qrCode) {
+        safeWrite(`data: ${JSON.stringify({ type: 'qr', qrCode: liveState.qrCode })}\n\n`);
+      } else {
+        safeWrite(`data: ${JSON.stringify({ type: 'waiting', message: 'QR bekleniyor...' })}\n\n`);
+      }
+    } else {
+      // Pairing sürüyorsa onu iptal et (QR'a temiz geçiş, hata atmadan).
+      if (pairingActive) {
+        logger.info('Pairing active, cancelling it to start a clean QR flow');
+        whatsAppService.removeListener('disconnected', disconnectedHandler);
+        try {
+          await whatsAppService.cancelConnection();
+          await new Promise(resolve => setTimeout(resolve, 300));
+        } catch { }
+        whatsAppService.on('disconnected', disconnectedHandler);
+      }
+
+      logger.info('Starting WhatsApp connection for QR generation...');
+      try {
+        whatsAppService.connect().then(() => {
+          logger.info('connect() resolved, waiting for Baileys QR/connection events');
+        }).catch(error => {
+          logger.error({ error }, 'connect() failed during QR stream');
+          safeWrite(`data: ${JSON.stringify({ type: 'error', message: 'Connection initialization failed' })}\n\n`);
+        });
+      } catch (syncError) {
+        logger.error({ error: syncError }, 'Synchronous error calling connect()');
+        safeWrite(`data: ${JSON.stringify({ type: 'error', message: 'Failed to start connection' })}\n\n`);
+        safeEnd();
+        return;
+      }
+
+      const postConnectState = whatsAppService.getState();
+      if (postConnectState.qrCode) {
+        logger.debug('QR already available, sending immediately');
+        safeWrite(`data: ${JSON.stringify({ type: 'qr', qrCode: postConnectState.qrCode })}\n\n`);
+      }
+
+      if (postConnectState.isConnected) {
+        safeWrite(`data: ${JSON.stringify({ type: 'connected', session: whatsAppService.getSessionInfo() })}\n\n`);
+        connectionConfirmed = true;
+        connectionConfirmTimeout = setTimeout(() => {
+          if (whatsAppService.getState().isConnected) {
+            safeEnd();
+          }
+        }, 5000);
+      }
+    }
 
     setTimeout(() => {
       safeWrite(`data: ${JSON.stringify({ type: 'timeout' })}\n\n`);
       safeEnd();
     }, 160000);
+  }
+
+  /** POST /api/auth/pairing-code — telefon numarası (kod) ile bağlanma */
+  public async requestPairingCode(req: Request, res: Response): Promise<void> {
+    try {
+      const { phoneNumber } = (req.body ?? {}) as { phoneNumber?: unknown };
+
+      if (typeof phoneNumber !== 'string' || !phoneNumber.trim()) {
+        res.status(400).json(ResponseFormatter.badRequest('phoneNumber gerekli (ülke kodu ile)'));
+        return;
+      }
+
+      const code = await whatsAppService.requestPairingCode(phoneNumber);
+      res.status(200).json(
+        ResponseFormatter.success<PairingResponse>(
+          { pairingCode: code, expiresIn: 120 },
+          'WhatsApp > Bağlı Cihazlar > Cihaz bağla > Telefon numarası ile bağla'
+        )
+      );
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Pairing kodu alınamadı';
+      logger.warn({ error }, 'Failed to request pairing code');
+      res.status(400).json(ResponseFormatter.badRequest(message));
+    }
   }
 
   /** GET /api/auth/status */
@@ -246,8 +282,23 @@ export class AuthController {
         isConnecting: state.isConnecting,
         hasSession: hasExistingSession,
         session: session || undefined,
+        encryptionAlert: whatsAppService.isEncryptionAlert(),
       })
     );
+  }
+
+  /** POST /api/auth/reconnect — oturumu silmeden bağlantıyı yeniler (şifreleme kurtarma) */
+  public async reconnect(req: Request, res: Response): Promise<void> {
+    try {
+      // Bloklamadan başlat; istemci /auth/status ile durumu izler.
+      whatsAppService.reconnect().catch(error => {
+        logger.error({ error }, 'Reconnect failed');
+      });
+      res.status(200).json(ResponseFormatter.success({ reconnecting: true }, 'Bağlantı yenileniyor'));
+    } catch (error) {
+      logger.error({ error }, 'Failed to start reconnect');
+      res.status(500).json(ResponseFormatter.serverError('Bağlantı yenilenemedi'));
+    }
   }
 
   /** POST /api/auth/logout */

@@ -11,22 +11,6 @@ export interface SessionInfo {
   phone: string;
 }
 
-export interface IncomingMessage {
-  id: string;
-  from: string;
-  fromName: string;
-  content: string;
-  timestamp: Date;
-  type: MessageType;
-  isGroup: boolean;
-  isRead?: boolean;
-  isFromMe?: boolean;
-  fromMe?: boolean;
-  mediaUrl?: string;
-  mimetype?: string;
-  fileName?: string;
-}
-
 export type MessageType = 'text' | 'image' | 'video' | 'audio' | 'ptt' | 'document' | 'sticker' | 'location' | 'liveLocation' | 'vcard' | 'contact' | 'poll' | 'event';
 
 export interface SendMessagePayload {
@@ -93,62 +77,6 @@ export interface UpdateScheduledMessagePayload {
   scheduledAt?: string;
 }
 
-export interface ChatInfo {
-  jid: string;
-  name: string;
-  phone: string;
-  lastMessage: IncomingMessage | null;
-  messageCount: number;
-  unreadCount: number;
-  isArchived: boolean;
-  isPinned: boolean;
-  isMuted: boolean;
-  lastMessageAt: Date | null;
-  countryCode?: string;
-}
-
-export interface ChatFilters {
-  archived?: boolean;
-  unread?: boolean;
-  read?: boolean;
-  countryCode?: string;
-  search?: string;
-  startDate?: string;
-  endDate?: string;
-  sortBy?: 'lastMessage' | 'unread' | 'name';
-  sortOrder?: 'asc' | 'desc';
-  page?: number;
-  limit?: number;
-}
-
-export interface PaginatedResponse<T> {
-  items: T[];
-  total: number;
-  page: number;
-  limit: number;
-  totalPages: number;
-  hasNext: boolean;
-  hasPrev: boolean;
-}
-
-export interface ContactInfo {
-  jid: string;
-  name: string;
-  phone: string;
-  isOnWhatsApp: boolean;
-  profilePicUrl?: string;
-  status?: string;
-  lastSeen?: Date;
-}
-
-export interface ProfileInfo {
-  jid: string;
-  name: string;
-  phone: string;
-  profilePicUrl?: string;
-  status?: string;
-}
-
 export interface QueueItem {
   id: string;
   jid: string;
@@ -177,11 +105,11 @@ export interface BulkJob {
   startedAt?: Date;
   completedAt?: Date;
   scheduledAt?: Date;
-  timeWindow?: TimeWindow;
   messageType: MessageType;
   message?: string;
   mediaUrl?: string;
   mediaBase64?: string;
+  mediaItems?: BulkMediaItem[];
   caption?: string;
   fileName?: string;
   mimetype?: string;
@@ -197,13 +125,16 @@ export interface BulkJob {
   pauseReason?: string;
 }
 
-export interface TimeWindow {
-  startTime: string;
-  endTime: string;
-  timezone?: string;
-}
-
 export type BulkJobStatus = 'queued' | 'scheduled' | 'processing' | 'paused' | 'completed' | 'cancelled';
+
+/** Çoklu medya gönderiminde tek bir dosya (toplu gönderim). */
+export interface BulkMediaItem {
+  type: MessageType;
+  mediaBase64?: string;
+  mediaUrl?: string;
+  fileName?: string;
+  mimetype?: string;
+}
 
 export interface BulkSendPayload {
   recipients: string[];
@@ -214,11 +145,9 @@ export interface BulkSendPayload {
   caption?: string;
   fileName?: string;
   mimetype?: string;
+  /** Birden fazla dosya: her alıcıya sırayla gönderilir (maks 5). */
+  mediaItems?: BulkMediaItem[];
   scheduledAt?: string;
-  timeWindow?: {
-    startTime: string;
-    endTime: string;
-  };
   typingDuration?: number;
   minDelay?: number;
   maxDelay?: number;
@@ -248,7 +177,6 @@ export interface BulkJobStats {
   typingDuration: number;
   minDelay: number;
   maxDelay: number;
-  timeWindow?: TimeWindow;
 }
 
 export interface BulkJobDetailedStats extends BulkJobStats {
@@ -278,20 +206,33 @@ export interface QRResponse {
   expiresIn: number;
 }
 
+export interface PairingResponse {
+  pairingCode: string;
+  expiresIn: number;
+}
+
+/** Bir numaranın WhatsApp'ta kayıtlı olup olmadığının sonucu. */
+export interface NumberCheckResult {
+  phone: string;
+  exists: boolean;
+  jid: string | null;
+}
+
 export interface StatusResponse {
   isConnected: boolean;
   isConnecting?: boolean;
   hasSession?: boolean;
   session?: SessionInfo;
+  /** Şifreleme/oturum sorunu algılandı mı? (ADDON kalıcı uyarı gösterir) */
+  encryptionAlert?: boolean;
 }
 
 export interface WhatsAppEvents {
   qr: (qr: string) => void;
+  pairingCode: (code: string) => void;
   connected: (session: SessionInfo) => void;
   disconnected: (reason: string) => void;
   reconnecting: (data: { attempt: number; delay: number; reason: string }) => void;
-  message: (message: IncomingMessage) => void;
-  messageSent: (result: SendMessageResult) => void;
 }
 
 export interface AppConfig {
@@ -299,12 +240,10 @@ export interface AppConfig {
   nodeEnv: string;
   sessionPath: string;
   timezone: string;
-  ignoredJids: string[];
   queue: QueueConfig;
   rateLimit: RateLimitConfig;
   security: SecurityConfig;
   whatsapp: WhatsAppConfig;
-  cacheClearInterval: number;
 }
 
 export interface CallRejectSettings {
@@ -315,6 +254,8 @@ export interface WhatsAppConfig {
   autoRead: boolean;
   notify: boolean;
   callReject: CallRejectSettings;
+  /** Mesaj göndermeden önce "yazıyor..." gösterme süresi (ms). */
+  typingDuration: number;
 }
 
 export interface QueueConfig {
@@ -392,16 +333,6 @@ export interface QueueStats {
   }>;
 }
 
-export interface MessageStats {
-  totalChats: number;
-  totalMessages: number;
-  chats: Array<{
-    jid: string;
-    messageCount: number;
-    lastMessageTime: string | null;
-  }>;
-}
-
 export interface ServerStats {
   timestamp: string;
   server: {
@@ -413,7 +344,6 @@ export interface ServerStats {
   system: SystemStats;
   whatsapp: WhatsAppStats;
   queue: QueueStats;
-  messages: MessageStats;
   health: {
     status: 'healthy' | 'degraded' | 'unhealthy';
     checks: {

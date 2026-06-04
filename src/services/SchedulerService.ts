@@ -1,8 +1,8 @@
 import { EventEmitter } from 'events';
 import { randomUUID } from 'crypto';
 import logger from '../utils/logger';
-import whatsAppService from './WhatsAppService';
 import settingsService from './SettingsService';
+import { isGroupJid } from '../utils/jid';
 import type {
   ScheduledMessage,
   ScheduledMessageStatus,
@@ -56,8 +56,8 @@ class SchedulerService extends EventEmitter {
       );
     }
 
-    if (this.isGroupJid(payload.jid)) {
-      throw new Error('Cannot schedule messages to group chats');
+    if (isGroupJid(payload.jid)) {
+      throw new Error('Gruplara zamanlı mesaj gönderilemez');
     }
 
     const scheduledMessage: ScheduledMessage = {
@@ -217,10 +217,6 @@ class SchedulerService extends EventEmitter {
     return count;
   }
 
-  private isGroupJid(jid: string): boolean {
-    return jid.includes('@g.us') || jid.includes('@broadcast');
-  }
-
   private scheduleTimer(message: ScheduledMessage): void {
     const delay = message.scheduledAt.getTime() - Date.now();
 
@@ -247,54 +243,24 @@ class SchedulerService extends EventEmitter {
   private async sendScheduledMessage(message: ScheduledMessage): Promise<void> {
     this.clearTimer(message.id);
 
-    if (!whatsAppService.isReady()) {
-      message.status = 'failed';
-      message.error = 'WhatsApp not connected';
-      this.scheduledMessages.set(message.id, message);
-      this.emit('messageFailed', message);
-      logger.error({ id: message.id }, 'Scheduled message failed: No connection');
-      return;
-    }
-
     try {
+      // Anlık gönderimle AYNI boru hattını kullan: bağlantı bekleme + yeniden
+      // deneme + "yazıyor" göstergesi + retry-receipt için içerik önbelleği,
+      // hepsi MessageService.sendMessage içinde. Böylece zamanlı mesajlar da
+      // "Mesaj bekleniyor" sorununa düşmeden, anlık mesajla aynı güvenle gider.
       const messageService = require('./MessageService').default;
 
-      const typingDuration = message.typingDuration ?? 3000;
-      try {
-        await whatsAppService.sendPresenceUpdate(message.jid, 'composing');
-        await this.delay(typingDuration);
-        await whatsAppService.sendPresenceUpdate(message.jid, 'paused');
-      } catch (typingError) {
-        logger.debug({ error: typingError, jid: message.jid }, 'Failed to send typing indicator, proceeding with message');
-      }
-
-      let result;
-
-      if (message.type === 'text') {
-        result = await whatsAppService.sendMessage(message.jid, message.message || '');
-
-        if (result.success && result.messageId) {
-          messageService.addSentMessage(message.jid, result.messageId, message.message || '', 'text');
-        }
-      } else {
-        result = await whatsAppService.sendMedia(message.jid, {
-          type: message.type,
-          url: message.mediaUrl,
-          base64: message.mediaBase64,
-          caption: message.caption,
-          fileName: message.fileName,
-          mimetype: message.mimetype,
-        });
-
-        if (result.success && result.messageId) {
-          messageService.addSentMessage(
-            message.jid,
-            result.messageId,
-            message.caption || `[${message.type.toUpperCase()}]`,
-            message.type
-          );
-        }
-      }
+      const result = await messageService.sendMessage({
+        jid: message.jid,
+        message: message.message,
+        type: message.type,
+        mediaUrl: message.mediaUrl,
+        mediaBase64: message.mediaBase64,
+        caption: message.caption,
+        fileName: message.fileName,
+        mimetype: message.mimetype,
+        typingDuration: message.typingDuration ?? 3000,
+      });
 
       if (result.success) {
         message.status = 'sent';
@@ -309,16 +275,12 @@ class SchedulerService extends EventEmitter {
       }
     } catch (error) {
       message.status = 'failed';
-      message.error = error instanceof Error ? error.message : 'Unknown error';
+      message.error = error instanceof Error ? error.message : 'Bilinmeyen hata';
       this.emit('messageFailed', message);
       logger.error({ id: message.id, error }, 'Scheduled message failed');
     }
 
     this.scheduledMessages.set(message.id, message);
-  }
-
-  private delay(ms: number): Promise<void> {
-    return new Promise(resolve => setTimeout(resolve, ms));
   }
 
   private startScheduleChecker(): void {

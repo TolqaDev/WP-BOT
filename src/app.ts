@@ -1,12 +1,9 @@
 import { createServer, startServer } from './server';
 import whatsAppService from './services/WhatsAppService';
-import './services/MessageService';
 import queueService from './services/QueueService';
 import logger from './utils/logger';
 
 const initializeServices = (): void => {
-  logger.info('MessageService initialized');
-
   queueService.on('jobCreated', (jobId) => {
     logger.info({ jobId }, 'Bulk job created');
   });
@@ -21,10 +18,6 @@ const initializeServices = (): void => {
 
   whatsAppService.on('disconnected', (reason) => {
     logger.warn({ reason }, 'WhatsApp disconnected');
-  });
-
-  whatsAppService.on('message', (message) => {
-    logger.debug({ from: message.from, type: message.type }, 'New message received');
   });
 
   logger.info('Services initialized');

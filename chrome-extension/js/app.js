@@ -6,15 +6,12 @@ class WhatsAppBOTApp {
       isConnecting: false,
       hasSession: false,
       sessionInfo: null,
-      currentTab: 'chats',
-      currentChatJid: null,
-      currentChatFilter: 'all',
-      newChatJid: null,
+      currentTab: 'messaging',
       messageType: 'single',
       singleScheduleMode: 'now',
       singleMessageType: 'text',
-      unreadCount: 0,
-      unreadChats: new Set()
+      singleMediaList: [],
+      bulkMediaList: []
     };
   }
 
@@ -25,6 +22,23 @@ class WhatsAppBOTApp {
       this.setupEventListeners();
       utils.initTooltips();
       await this.loadSettings();
+      await this.restoreLastUsed();
+
+      // Hiç sunucu yapılandırılmadıysa: hiçbir istek atma (gereksiz /auth/status
+      // polling'i önlenir), kullanıcıyı sunucu eklemeye yönlendir.
+      if (!api.baseUrl) {
+        this.state.apiReady = false;
+        this.state.isConnected = false;
+        this.state.isConnecting = false;
+        this.updateConnectionUI();
+        this.updateSidebarLock();
+        this.updateApiStatusDot('');
+        this.showConnectionOverlay();
+        this.hideLoadingScreen();
+        this.startAutoRefresh();
+        setTimeout(() => this.openApiModal('add-server'), 400);
+        return;
+      }
 
       try {
         await this.checkConnection();
@@ -33,7 +47,7 @@ class WhatsAppBOTApp {
 
         if (this.state.isConnected) {
           this.hideConnectionOverlay();
-          this.switchTab('chats');
+          this.switchTab('messaging');
           this.updateApiStatusDot('connected');
         } else {
           this.showConnectionOverlay();
@@ -57,10 +71,6 @@ class WhatsAppBOTApp {
 
       this.hideLoadingScreen();
       this.startAutoRefresh();
-
-      if (this.state.isConnected) {
-        this.startGlobalMessageStream();
-      }
     } catch (error) {
       console.error('Init error:', error);
       this.updateLoadingStatus('Bağlantı hatası');
@@ -109,7 +119,6 @@ class WhatsAppBOTApp {
     document.getElementById('save-settings')?.addEventListener('click', () => this.saveSettings());
     document.getElementById('test-connection')?.addEventListener('click', () => this.testConnection());
     document.getElementById('toggle-api-key')?.addEventListener('click', () => this.toggleApiKeyVisibility());
-    document.getElementById('add-server-btn')?.addEventListener('click', () => this.openApiModal('add-server'));
 
     document.querySelectorAll('.modal-tab[data-modal-tab]').forEach(tab => {
       tab.addEventListener('click', () => this.switchModalTab(tab.dataset.modalTab));
@@ -119,9 +128,6 @@ class WhatsAppBOTApp {
     document.getElementById('refresh-server-settings')?.addEventListener('click', () => this.loadServerSettings());
     document.getElementById('retry-server-settings')?.addEventListener('click', () => this.loadServerSettings());
 
-    document.getElementById('chat-clear-cache-btn')?.addEventListener('click', () => this.clearCurrentChatCache());
-    document.getElementById('clear-all-cache-btn')?.addEventListener('click', () => this.clearAllCachesAction());
-
     document.getElementById('terminal-log-btn')?.addEventListener('click', () => this.openTerminalPopup());
     document.getElementById('terminal-close-btn')?.addEventListener('click', () => this.closeTerminalPopup());
     document.getElementById('terminal-clear-btn')?.addEventListener('click', () => this.clearTerminalOutput());
@@ -130,82 +136,26 @@ class WhatsAppBOTApp {
       if (output) output.scrollTop = output.scrollHeight;
     });
 
+    // Yazıyor süresi etiketi (değer "Ayarları Kaydet" ile sunucuya yazılır)
     document.getElementById('typing-duration')?.addEventListener('input', (e) => {
       const sec = parseInt(e.target.value);
       const label = document.getElementById('typing-duration-value');
       if (label) label.textContent = sec === 0 ? 'Kapalı' : `${sec} sn`;
     });
-    document.getElementById('typing-duration')?.addEventListener('change', (e) => {
-      const sec = parseInt(e.target.value);
-      if (typeof chrome !== 'undefined' && chrome.storage) {
-        chrome.storage.local.set({ typingDuration: sec * 1000 });
-      }
-    });
-    if (typeof chrome !== 'undefined' && chrome.storage) {
-      chrome.storage.local.get(['typingDuration'], (result) => {
-        const ms = result.typingDuration || 0;
-        const sec = Math.round(ms / 1000);
-        const slider = document.getElementById('typing-duration');
-        const label = document.getElementById('typing-duration-value');
-        if (slider) slider.value = sec;
-        if (label) label.textContent = sec === 0 ? 'Kapalı' : `${sec} sn`;
-      });
-    }
 
-    document.getElementById('sync-pc-time')?.addEventListener('click', () => {
-      const now = new Date();
-      const tz = Intl.DateTimeFormat().resolvedOptions().timeZone;
-      const timezoneSelect = document.getElementById('server-timezone');
-      if (timezoneSelect) {
-        if (!timezoneSelect.querySelector(`option[value="${tz}"]`)) {
-          const option = document.createElement('option');
-          option.value = tz;
-          option.textContent = tz;
-          timezoneSelect.appendChild(option);
-        }
-        timezoneSelect.value = tz;
-      }
-      const timeEl = document.getElementById('server-time');
-      if (timeEl) timeEl.textContent = now.toLocaleString('tr-TR', { timeZone: tz });
-      utils.toast(`Saat dilimi ${tz} olarak ayarlandı`, 'success');
-    });
+    document.getElementById('enc-alert-reconnect')?.addEventListener('click', () => this.reconnectEncryption());
 
     document.getElementById('connect-btn').addEventListener('click', () => this.connect());
     document.getElementById('disconnect-btn').addEventListener('click', () => this.disconnect());
 
+    document.getElementById('pairing-toggle-btn')?.addEventListener('click', () => this.enterPairingMode());
+    document.getElementById('pairing-back-btn')?.addEventListener('click', () => this.exitPairingMode());
+    document.getElementById('pairing-code-btn')?.addEventListener('click', () => this.requestPairingCode());
+    document.getElementById('pairing-phone')?.addEventListener('keydown', (e) => {
+      if (e.key === 'Enter') this.requestPairingCode();
+    });
+
     document.getElementById('refresh-stats')?.addEventListener('click', () => this.loadStats());
-
-    document.getElementById('chat-search').addEventListener('input',
-      utils.debounce((e) => this.loadChats(e.target.value), 300)
-    );
-    document.querySelectorAll('.chat-filter-tab').forEach(tab => {
-      tab.addEventListener('click', () => this.setChatsFilter(tab.dataset.filter));
-    });
-    document.getElementById('new-chat-btn').addEventListener('click', () => this.showNewChatPanel());
-    document.getElementById('welcome-new-chat-btn').addEventListener('click', () => this.showNewChatPanel());
-
-    document.getElementById('new-chat-back-btn').addEventListener('click', () => this.hideNewChatPanel());
-    document.getElementById('new-chat-check-btn').addEventListener('click', () => this.checkNewChatNumber());
-    document.getElementById('start-chat-btn').addEventListener('click', () => this.startNewChat());
-    document.getElementById('new-chat-phone').addEventListener('keypress', (e) => {
-      if (e.key === 'Enter') this.checkNewChatNumber();
-    });
-
-    document.getElementById('chat-back-btn').addEventListener('click', () => this.closeChat());
-    document.getElementById('chat-close-btn').addEventListener('click', () => this.closeChat());
-    document.getElementById('chat-send-btn').addEventListener('click', () => this.sendChatMessage());
-    document.getElementById('chat-message-input').addEventListener('keypress', (e) => {
-      if (e.key === 'Enter' && !e.shiftKey) {
-        e.preventDefault();
-        this.sendChatMessage();
-      }
-    });
-
-    const chatInput = document.getElementById('chat-message-input');
-    chatInput.addEventListener('input', () => {
-      chatInput.style.height = 'auto';
-      chatInput.style.height = Math.min(chatInput.scrollHeight, 100) + 'px';
-    });
 
     document.querySelectorAll('.messaging-tab').forEach(tab => {
       tab.addEventListener('click', () => this.switchMessageType(tab.dataset.type));
@@ -237,16 +187,6 @@ class WhatsAppBOTApp {
     document.getElementById('bulk-recipients').addEventListener('input', (e) => this.updateRecipientCount(e.target.value));
     document.getElementById('bulk-message').addEventListener('input', (e) => this.updateBulkCharCount(e.target.value));
 
-    document.querySelectorAll('.schedule-option[data-time-window]').forEach(opt => {
-      opt.addEventListener('click', () => {
-        document.querySelectorAll('.schedule-option[data-time-window]').forEach(o => o.classList.remove('active'));
-        opt.classList.add('active');
-        const isOn = opt.dataset.timeWindow === 'on';
-        document.getElementById('bulk-time-window').checked = isOn;
-        utils.toggle('time-window-group', isOn);
-      });
-    });
-
     document.querySelectorAll('.schedule-option[data-bulk-schedule]').forEach(opt => {
       opt.addEventListener('click', () => {
         document.querySelectorAll('.schedule-option[data-bulk-schedule]').forEach(o => o.classList.remove('active'));
@@ -271,6 +211,14 @@ class WhatsAppBOTApp {
       e.target.min = utils.getMinScheduleDate();
     });
     document.getElementById('bulk-send-btn').addEventListener('click', () => this.handleBulkSend());
+
+    // Medya sürükle-bırak (Task 2)
+    this.setupDropzone('single');
+    this.setupDropzone('bulk');
+
+    // Geçersiz numara popup'ı kapat (Task 1)
+    document.getElementById('invalid-ok-btn')?.addEventListener('click', () => this.closeInvalidPopup());
+    document.getElementById('invalid-backdrop')?.addEventListener('click', () => this.closeInvalidPopup());
   }
 
   switchTab(tabId) {
@@ -293,7 +241,6 @@ class WhatsAppBOTApp {
     });
 
     const titles = {
-      'chats': 'Sohbetler',
       'messaging': 'Mesaj Gönderimi',
       'dashboard': 'Kontrol Paneli'
     };
@@ -301,14 +248,7 @@ class WhatsAppBOTApp {
 
     this.state.currentTab = tabId;
 
-    if (tabId !== 'chats' && this.state.currentChatJid) {
-      this.closeChat();
-    }
-
     switch (tabId) {
-      case 'chats':
-        this.loadChats();
-        break;
       case 'messaging':
         this.loadBulkJobs();
         this.loadScheduledMessages();
@@ -330,10 +270,10 @@ class WhatsAppBOTApp {
         this.state.sessionInfo = response.data.session;
         this.state.hasSession = response.data.hasSession || false;
         this.updateConnectionUI();
+        this.updateEncryptionAlert(response.data.encryptionAlert);
 
         if (this.state.isConnected) {
           await this.loadDashboardData();
-          await this.loadChats();
         } else if (response.data.hasSession && !response.data.isConnecting) {
           this.updateLoadingStatus('Kayıtlı oturum bulundu, bağlanıyor...');
 
@@ -348,7 +288,6 @@ class WhatsAppBOTApp {
 
             if (retryResponse.data.isConnected) {
               await this.loadDashboardData();
-              await this.loadChats();
             } else if (retryResponse.data.isConnecting) {
               this.updateLoadingStatus('Bağlanıyor...');
             }
@@ -376,10 +315,6 @@ class WhatsAppBOTApp {
     if (isConnected) {
       badge.classList.add('connected');
       badgeText.textContent = 'Bağlı';
-
-      if (!api.isMessageStreamActive()) {
-        this.startGlobalMessageStream();
-      }
     } else if (isConnecting) {
       badge.classList.add('connecting');
       badgeText.textContent = 'Bağlanıyor...';
@@ -392,9 +327,6 @@ class WhatsAppBOTApp {
     } else {
       badge.classList.add('disconnected');
       badgeText.textContent = 'Bağlı Değil';
-
-      this.stopGlobalMessageStream();
-      this.stopChatStream();
 
       this.resetConnectButton();
     }
@@ -457,10 +389,9 @@ class WhatsAppBOTApp {
           this.state.hasSession = true;
           this.updateConnectionUI();
           this.hideConnectionOverlay();
-          this.switchTab('chats');
+          this.switchTab('messaging');
           utils.toast('WhatsApp zaten bağlı!', 'success');
           this.loadDashboardData();
-          this.loadChats();
           return;
         }
       }
@@ -527,7 +458,6 @@ class WhatsAppBOTApp {
                   utils.toast('WhatsApp bağlandı!', 'success');
 
                   this.loadDashboardData();
-                  this.loadChats();
                   return true;
                 } else if (statusResponse.data.isConnecting && attempt < 6) {
                   console.log(`Still connecting, attempt ${attempt}/6, checking again in 3s...`);
@@ -644,15 +574,148 @@ class WhatsAppBOTApp {
     }
   }
 
+  // ─────────────── KOD İLE BAĞLANMA (pairing) ───────────────
+
+  enterPairingMode() {
+    // QR akışını durdur; pairing modu QR'dan bağımsız çalışır.
+    api.stopQRStream();
+    this.stopPairingStatusPoll();
+    this._pairingRequested = false;
+
+    utils.hide('qr-container');
+    utils.hide('connect-btn');
+    utils.hide('pairing-toggle-btn');
+    utils.hide('qr-steps');
+    utils.hide('pairing-code-result');
+    utils.show('pairing-panel');
+
+    document.getElementById('pairing-phone')?.focus();
+  }
+
+  exitPairingMode(cancelServer = false) {
+    this.stopPairingStatusPoll();
+
+    // QR'a geçerken: sunucudaki pairing denemesini iptal et ki QR temiz başlasın
+    // (hata atmadan). Yalnız gerçekten kod istenmişse iptal et — QR sayacını
+    // gereksiz yere sıfırlamamak için (Task 2).
+    if (cancelServer && this._pairingRequested) {
+      api.cancelConnection().catch(() => { });
+    }
+    this._pairingRequested = false;
+
+    utils.hide('pairing-panel');
+    utils.hide('pairing-code-result');
+    utils.show('qr-container');
+    utils.show('connect-btn');
+    utils.show('pairing-toggle-btn');
+    utils.show('qr-steps');
+  }
+
+  async requestPairingCode(isRefresh = false) {
+    const input = document.getElementById('pairing-phone');
+    const phone = (input?.value || '').replace(/\D/g, '');
+
+    if (phone.length < 10) {
+      utils.toast('Geçerli bir telefon numarası girin (ülke kodu ile)', 'warning');
+      return;
+    }
+
+    // Sunucuya erişilebilir mi? + zaten bağlı mı?
+    try {
+      const pre = await api.getStatus();
+      if (pre.success && pre.data?.isConnected) {
+        utils.toast('WhatsApp zaten bağlı!', 'success');
+        this.exitPairingMode();
+        return;
+      }
+      this.state.apiReady = true;
+      this.updateApiStatusDot('connected');
+    } catch (e) {
+      utils.toast('Sunucuya erişilemiyor. Bağlantı ayarlarını kontrol edin.', 'error');
+      this.updateApiStatusDot('error');
+      return;
+    }
+
+    const loadingBtn = isRefresh ? 'pairing-refresh-btn' : 'pairing-code-btn';
+    try {
+      utils.setLoading(loadingBtn, true, isRefresh ? 'Yenileniyor...' : 'Alınıyor...');
+
+      const response = await api.requestPairingCode(phone);
+      if (response.success && response.data?.pairingCode) {
+        const code = response.data.pairingCode;
+        const valueEl = document.getElementById('pairing-code-value');
+        // 4-4 grupla (ABCD-EFGH) — okunaklı olsun.
+        if (valueEl) valueEl.textContent = code.length === 8 ? `${code.slice(0, 4)}-${code.slice(4)}` : code;
+        utils.show('pairing-code-result');
+
+        this._pairingRequested = true;
+        this.state.isConnecting = true;
+        this.state.isConnected = false;
+
+        utils.toast(isRefresh ? 'Yeni kod oluşturuldu' : 'Kod oluşturuldu, WhatsApp\'a girin', 'success');
+        this.startPairingStatusPoll();
+      } else {
+        throw new Error(response.message || 'Kod alınamadı');
+      }
+    } catch (error) {
+      console.error('Pairing code error:', error);
+      utils.toast(error.message || 'Kod alınamadı', 'error');
+    } finally {
+      utils.setLoading(loadingBtn, false);
+    }
+  }
+
+  startPairingStatusPoll() {
+    this.stopPairingStatusPoll();
+    let attempts = 0;
+    const maxAttempts = 60; // ~3 dk (3 sn × 60)
+
+    this._pairingPollTimer = setInterval(async () => {
+      attempts++;
+      if (attempts > maxAttempts) {
+        this.stopPairingStatusPoll();
+        this.state.isConnecting = false;
+        this.updateConnectionUI();
+        utils.toast('Kod süresi doldu, tekrar deneyin', 'warning');
+        return;
+      }
+
+      try {
+        const response = await api.getStatus();
+        if (response.success && response.data?.isConnected) {
+          this.stopPairingStatusPoll();
+          this.state.isConnected = true;
+          this.state.isConnecting = false;
+          this.state.sessionInfo = response.data.session;
+          this.state.hasSession = true;
+          this.exitPairingMode();
+          this.resetConnectButton();
+          this.updateConnectionUI();
+          utils.toast('WhatsApp bağlandı!', 'success');
+          this.loadDashboardData();
+        }
+      } catch (e) {
+        // Sessiz geç; bir sonraki turda tekrar denenir.
+      }
+    }, 3000);
+  }
+
+  stopPairingStatusPoll() {
+    if (this._pairingPollTimer) {
+      clearInterval(this._pairingPollTimer);
+      this._pairingPollTimer = null;
+    }
+  }
+
   async disconnect() {
     if (!await utils.showConfirm('WhatsApp oturumundan çıkmak istediğinize emin misiniz?')) return;
 
     try {
       utils.setLoading('disconnect-btn', true, 'Çıkış...');
 
-      this.stopGlobalMessageStream();
-      this.stopChatStream();
       api.stopQRStream();
+      this.stopPairingStatusPoll();
+      this.exitPairingMode();
 
       await api.logout();
 
@@ -816,9 +879,6 @@ class WhatsAppBOTApp {
     api.baseUrl = '';
     api.apiKey = '';
 
-    this.stopGlobalMessageStream();
-    this.stopChatStream();
-
     this.updateApiStatusDot('');
 
     this.updateConnectionUI();
@@ -855,8 +915,16 @@ class WhatsAppBOTApp {
     }
   }
 
-  updateApiInfoDisplay() {
-    this.renderServerList();
+  async updateApiInfoDisplay() {
+    // Aktif sunucu kayıtlı listede yoksa otomatik ekle (güvenlik ağı).
+    const currentUrl = api.baseUrl;
+    if (currentUrl) {
+      const servers = await this.getSavedServers();
+      if (!servers.find(s => s.url === currentUrl)) {
+        await this.addOrUpdateServer(currentUrl, api.apiKey); // bu tekrar updateApiInfoDisplay çağırır
+        return;
+      }
+    }
     this.renderModalServerList();
   }
 
@@ -919,8 +987,6 @@ class WhatsAppBOTApp {
     const server = servers.find(s => s.id === serverId);
     if (!server) return;
 
-    this.stopGlobalMessageStream();
-    this.stopChatStream();
     api.stopQRStream();
 
     await api.saveSettings(server.url, server.key);
@@ -933,7 +999,7 @@ class WhatsAppBOTApp {
       if (this.state.isConnected) {
         this.closeApiModal();
         this.hideConnectionOverlay();
-        this.switchTab('chats');
+        this.switchTab('messaging');
         this.updateApiStatusDot('connected');
         utils.toast(`${server.name} sunucusuna bağlandı`, 'success');
       } else {
@@ -952,65 +1018,6 @@ class WhatsAppBOTApp {
 
     this.renderModalServerList();
     this.updateApiInfoDisplay();
-  }
-
-  async renderServerList() {
-    const container = document.getElementById('server-list');
-    if (!container) return;
-
-    const servers = await this.getSavedServers();
-    const currentUrl = api.baseUrl;
-
-    if (currentUrl && !servers.find(s => s.url === currentUrl)) {
-      await this.addOrUpdateServer(currentUrl, api.apiKey);
-      return;
-    }
-
-    if (servers.length === 0) {
-      container.innerHTML = `
-        <div class="server-empty">
-          <i class="fas fa-server"></i>
-          <span>Kayıtlı sunucu yok</span>
-          <button class="btn btn-primary btn-sm" id="empty-add-server"><i class="fas fa-plus"></i> Sunucu Ekle</button>
-        </div>`;
-      document.getElementById('empty-add-server')?.addEventListener('click', () => this.openApiModal());
-      return;
-    }
-
-    container.innerHTML = servers.map(server => {
-      const isActive = server.url === currentUrl;
-      const displayUrl = (() => { try { return new URL(server.url).host; } catch { return server.url; } })();
-      return `
-        <div class="server-item ${isActive ? 'active' : ''}" data-id="${server.id}">
-          <div class="server-item-indicator ${isActive ? 'connected' : ''}"></div>
-          <div class="server-item-info">
-            <span class="server-item-name">${utils.escapeHtml(server.name)}</span>
-            <span class="server-item-url">${utils.escapeHtml(displayUrl)}</span>
-          </div>
-          <div class="server-item-actions">
-            ${!isActive ? `<button class="icon-btn-sm server-switch-btn" data-id="${server.id}" title="Bağlan"><i class="fas fa-plug"></i></button>` : ''}
-            <button class="icon-btn-sm server-edit-btn" data-id="${server.id}" title="Düzenle"><i class="fas fa-pen"></i></button>
-            <button class="icon-btn-sm server-delete-btn" data-id="${server.id}" title="Sil"><i class="fas fa-trash"></i></button>
-          </div>
-        </div>`;
-    }).join('');
-
-    container.querySelectorAll('.server-switch-btn').forEach(btn => {
-      btn.addEventListener('click', (e) => { e.stopPropagation(); this.switchServer(btn.dataset.id); });
-    });
-    container.querySelectorAll('.server-edit-btn').forEach(btn => {
-      btn.addEventListener('click', async (e) => {
-        e.stopPropagation();
-        const servers = await this.getSavedServers();
-        const server = servers.find(s => s.id === btn.dataset.id);
-        if (server) {
-          this.openApiModal('add-server', { url: server.url, key: server.key });
-        }
-      });
-    });
-    container.querySelectorAll('.server-delete-btn').forEach(btn => {
-      btn.addEventListener('click', (e) => { e.stopPropagation(); this.removeServer(btn.dataset.id); });
-    });
   }
 
   async renderModalServerList() {
@@ -1161,12 +1168,12 @@ class WhatsAppBOTApp {
     }
 
     await this.saveServers(reordered);
-    this.renderServerList();
+    this.renderModalServerList();
   }
 
   updateSidebarLock() {
     const canNavigate = this.state.apiReady && this.state.isConnected;
-    const tabTitles = { 'chats': 'Sohbetler', 'messaging': 'Mesaj Gönderimi', 'dashboard': 'Kontrol Paneli' };
+    const tabTitles = { 'messaging': 'Mesaj Gönderimi', 'dashboard': 'Kontrol Paneli' };
     document.querySelectorAll('.sidebar-nav-item[data-tab]').forEach(item => {
       const tab = item.dataset.tab;
       if (!canNavigate) {
@@ -1239,36 +1246,16 @@ class WhatsAppBOTApp {
       if (response.success && response.data) {
         const data = response.data;
 
-        const timezoneSelect = document.getElementById('server-timezone');
-        if (timezoneSelect) {
-          timezoneSelect.value = data.timezone || 'Europe/Istanbul';
-          if (!timezoneSelect.querySelector(`option[value="${data.timezone}"]`)) {
-            const option = document.createElement('option');
-            option.value = data.timezone;
-            option.textContent = data.timezone;
-            timezoneSelect.appendChild(option);
-            timezoneSelect.value = data.timezone;
-          }
-        }
-
         document.getElementById('server-auto-read').checked = data.autoRead || false;
         document.getElementById('server-notify').checked = data.notify || false;
         document.getElementById('server-call-reject').checked = data.callReject?.enabled || false;
 
-        const cacheIntervalSelect = document.getElementById('server-cache-clear-interval');
-        if (cacheIntervalSelect) {
-          cacheIntervalSelect.value = String(data.cacheClearInterval || 0);
-        }
-
-        const timeEl = document.getElementById('server-time');
-        if (timeEl && data.time) {
-          timeEl.textContent = data.time.localTime || data.time.currentTime || '-';
-        } else if (timeEl) {
-          const tz = data.timezone || 'Europe/Istanbul';
-          try {
-            timeEl.textContent = new Date().toLocaleString('tr-TR', { timeZone: tz });
-          } catch { timeEl.textContent = new Date().toLocaleString('tr-TR'); }
-        }
+        // Yazıyor süresi (ENV: TYPING_DURATION) — ms → sn
+        const typingSlider = document.getElementById('typing-duration');
+        const typingLabel = document.getElementById('typing-duration-value');
+        const typingSec = Math.round((data.typingDuration ?? 4000) / 1000);
+        if (typingSlider) typingSlider.value = typingSec;
+        if (typingLabel) typingLabel.textContent = typingSec === 0 ? 'Kapalı' : `${typingSec} sn`;
 
         utils.hide(loadingEl);
         utils.show(contentEl);
@@ -1287,13 +1274,12 @@ class WhatsAppBOTApp {
       utils.setLoading('save-server-settings', true);
 
       const settings = {
-        timezone: document.getElementById('server-timezone').value,
         autoRead: document.getElementById('server-auto-read').checked,
         notify: document.getElementById('server-notify').checked,
         callReject: {
           enabled: document.getElementById('server-call-reject').checked
         },
-        cacheClearInterval: parseInt(document.getElementById('server-cache-clear-interval')?.value || '0', 10)
+        typingDuration: parseInt(document.getElementById('typing-duration')?.value || '4', 10) * 1000
       };
 
       const response = await api.updateAppSettings(settings);
@@ -1309,47 +1295,6 @@ class WhatsAppBOTApp {
       utils.toast('Ayarlar kaydedilemedi: ' + error.message, 'error');
     } finally {
       utils.setLoading('save-server-settings', false);
-    }
-  }
-
-  async clearCurrentChatCache() {
-    if (!this.state.currentChatJid) return;
-
-    if (!await utils.showConfirm('Bu sohbetin önbelleğini temizlemek istediğinize emin misiniz?')) return;
-
-    try {
-      const response = await api.clearChatCache(this.state.currentChatJid);
-      if (response.success) {
-        utils.toast(`Sohbet önbelleği temizlendi (${response.data?.clearedMessages || 0} mesaj)`, 'success');
-        this.closeChat();
-        await this.loadChats();
-      } else {
-        throw new Error(response.message || 'Önbellek temizlenemedi');
-      }
-    } catch (error) {
-      console.error('Clear chat cache error:', error);
-      utils.toast('Önbellek temizlenemedi: ' + error.message, 'error');
-    }
-  }
-
-  async clearAllCachesAction() {
-    if (!await utils.showConfirm('Tüm sohbet önbelleğini temizlemek istediğinize emin misiniz?\nBu işlem geri alınamaz.')) return;
-
-    try {
-      utils.setLoading('clear-all-cache-btn', true, 'Temizleniyor...');
-      const response = await api.clearAllCaches();
-      if (response.success) {
-        const data = response.data || {};
-        utils.toast(`Tüm önbellek temizlendi (${data.clearedChats || 0} sohbet, ${data.clearedMessages || 0} mesaj)`, 'success');
-        await this.loadChats();
-      } else {
-        throw new Error(response.message || 'Önbellek temizlenemedi');
-      }
-    } catch (error) {
-      console.error('Clear all caches error:', error);
-      utils.toast('Önbellek temizlenemedi: ' + error.message, 'error');
-    } finally {
-      utils.setLoading('clear-all-cache-btn', false);
     }
   }
 
@@ -1488,8 +1433,6 @@ class WhatsAppBOTApp {
     try {
       utils.setLoading('save-settings', true);
 
-      this.stopGlobalMessageStream();
-      this.stopChatStream();
       api.stopQRStream();
 
       await api.saveSettings(url, key);
@@ -1508,7 +1451,7 @@ class WhatsAppBOTApp {
         if (this.state.isConnected) {
           this.closeApiModal();
           this.hideConnectionOverlay();
-          this.switchTab('chats');
+          this.switchTab('messaging');
           this.updateApiStatusDot('connected');
         } else {
           this.closeApiModal();
@@ -1586,16 +1529,10 @@ class WhatsAppBOTApp {
           healthEl.className = `system-health-badge ${healthStatus}`;
         }
 
-        const statChats = document.getElementById('stat-chats');
-        const statMessages = document.getElementById('stat-messages');
         const statJobs = document.getElementById('stat-jobs');
-
-        if (statChats) statChats.textContent = data.messages?.totalChats || 0;
-        if (statMessages) statMessages.textContent = data.messages?.totalMessages || 0;
         if (statJobs) statJobs.textContent = data.queue?.activeJobs || 0;
 
         const waConnectionTime = document.getElementById('wa-connection-time');
-        const waSentToday = document.getElementById('wa-sent-today');
         const waQueuePending = document.getElementById('wa-queue-pending');
 
         if (waConnectionTime) {
@@ -1609,11 +1546,6 @@ class WhatsAppBOTApp {
           } else {
             waConnectionTime.textContent = 'Bağlı değil';
           }
-        }
-
-        if (waSentToday) {
-          const totalMessages = data.messages?.totalMessages || 0;
-          waSentToday.textContent = `${totalMessages} mesaj`;
         }
 
         if (waQueuePending) {
@@ -1639,557 +1571,6 @@ class WhatsAppBOTApp {
     }
   }
 
-  async loadChats(search = null) {
-    try {
-      const searchText = search ?? document.getElementById('chat-search')?.value;
-      const filter = this.state.currentChatFilter;
-
-      const filters = {
-        limit: 50,
-        search: searchText || undefined,
-        unread: filter === 'unread' ? true : undefined
-      };
-
-      const response = await api.getChats(filters);
-      const container = document.getElementById('chats-list');
-
-      if (response.success && response.data?.chats?.length > 0) {
-        container.innerHTML = response.data.chats.map(chat => this.renderChatItem(chat)).join('');
-
-        container.querySelectorAll('.chat-item').forEach(item => {
-          item.addEventListener('click', () => this.openChat(item.dataset.jid));
-        });
-
-        response.data.chats.forEach(c => {
-          if (c.unreadCount > 0) {
-            this.state.unreadChats.add(c.jid);
-          }
-        });
-        this.updateUnreadBadge();
-      } else {
-        container.innerHTML = `
-          <div class="chats-empty">
-            <i class="fas fa-comments"></i>
-            <p>${filter === 'unread' ? 'Okunmamış mesaj yok' : 'Sohbet bulunamadı'}</p>
-          </div>
-        `;
-      }
-    } catch (error) {
-      console.error('Load chats error:', error);
-
-      const container = document.getElementById('chats-list');
-      if (error.message && (error.message.includes('Rate limit') || error.message.includes('Çok fazla istek'))) {
-        console.log('Rate limit hit while loading chats, will retry later');
-      } else {
-        container.innerHTML = `
-          <div class="chats-empty">
-            <i class="fas fa-exclamation-triangle"></i>
-            <p>Sohbetler yüklenemedi</p>
-            <small>${utils.escapeHtml(error.message)}</small>
-          </div>
-        `;
-      }
-    }
-  }
-
-  renderChatItem(chat) {
-    let name = chat.name;
-    if (!name || name === 'Ben' || name === 'BEN') {
-      name = utils.formatPhone(chat.phone) || utils.formatJid(chat.jid);
-    }
-    const lastMsg = utils.formatMessagePreview(chat.lastMessage);
-    const time = utils.formatDate(chat.lastMessageAt, 'short');
-    const initial = (name || '?').charAt(0).toUpperCase();
-    const isActive = this.state.currentChatJid === chat.jid;
-    const hasUnread = chat.unreadCount > 0;
-
-    return `
-      <div class="chat-item ${isActive ? 'active' : ''}" data-jid="${chat.jid}">
-        <div class="chat-item-avatar">${initial}</div>
-        <div class="chat-item-content">
-          <div class="chat-item-header">
-            <span class="chat-item-name">${utils.escapeHtml(name)}</span>
-            <span class="chat-item-time ${hasUnread ? 'unread' : ''}">${time}</span>
-          </div>
-          <div class="chat-item-preview">
-            <span class="chat-item-message">${utils.escapeHtml(lastMsg)}</span>
-            ${hasUnread ? `<span class="chat-item-badge">${chat.unreadCount}</span>` : ''}
-          </div>
-        </div>
-      </div>
-    `;
-  }
-
-  setChatsFilter(filter) {
-    this.state.currentChatFilter = filter;
-
-    document.querySelectorAll('.chat-filter-tab').forEach(tab => {
-      tab.classList.toggle('active', tab.dataset.filter === filter);
-    });
-
-    this.loadChats();
-  }
-
-  showNewChatPanel() {
-    utils.hide('chat-welcome');
-    utils.hide('chat-active-view');
-    utils.show('new-chat-panel');
-    document.getElementById('new-chat-phone').value = '';
-    document.getElementById('new-chat-result').textContent = '';
-    document.getElementById('new-chat-result').className = 'phone-check-result';
-    utils.hide('new-chat-profile');
-    this.state.newChatJid = null;
-    document.getElementById('new-chat-phone').focus();
-  }
-
-  hideNewChatPanel() {
-    utils.hide('new-chat-panel');
-    if (this.state.currentChatJid) {
-      utils.show('chat-active-view');
-    } else {
-      utils.show('chat-welcome');
-    }
-  }
-
-  async checkNewChatNumber() {
-    const input = document.getElementById('new-chat-phone');
-    const result = document.getElementById('new-chat-result');
-    const checkBtn = document.getElementById('new-chat-check-btn');
-    const startBtn = document.getElementById('start-chat-btn');
-    const phone = input.value.trim().replace(/\D/g, '');
-
-    if (!phone || phone.length < 10) {
-      result.textContent = 'Geçerli bir numara girin (en az 10 rakam)';
-      result.className = 'phone-check-result error';
-      return;
-    }
-
-    result.innerHTML = '<span class="spinner"></span> Kontrol ediliyor...';
-    result.className = 'phone-check-result loading';
-    checkBtn.disabled = true;
-    if (startBtn) startBtn.disabled = true;
-    utils.hide('new-chat-profile');
-    this.state.newChatJid = null;
-
-    try {
-      const response = await api.checkNumber(phone);
-
-      if (response.success && response.data?.isOnWhatsApp) {
-        result.innerHTML = '<i class="fas fa-check-circle"></i> WhatsApp\'ta kayıtlı';
-        result.className = 'phone-check-result success';
-
-        this.state.newChatJid = response.data.jid || `${phone}@s.whatsapp.net`;
-
-        const avatar = document.getElementById('new-chat-avatar');
-        const profilePhone = document.getElementById('new-chat-profile-phone');
-        const profileStatus = document.getElementById('new-chat-profile-status');
-
-        avatar.innerHTML = `<i class="fas fa-user"></i>`;
-        profilePhone.textContent = utils.formatPhone(phone);
-        profileStatus.textContent = 'WhatsApp Kullanıcısı';
-
-        try {
-          const profile = await api.getProfile(this.state.newChatJid);
-          if (profile.success && profile.data) {
-            profileStatus.textContent = profile.data.status || 'WhatsApp Kullanıcısı';
-            if (profile.data.name) {
-              profilePhone.textContent = profile.data.name;
-            }
-          }
-        } catch (e) {
-        }
-
-        utils.show('new-chat-profile');
-        if (startBtn) startBtn.disabled = false;
-
-      } else {
-        result.innerHTML = '<i class="fas fa-times-circle"></i> WhatsApp\'ta kayıtlı değil';
-        result.className = 'phone-check-result error';
-        this.state.newChatJid = null;
-        if (startBtn) startBtn.disabled = true;
-      }
-    } catch (error) {
-      result.textContent = 'Kontrol hatası: ' + error.message;
-      result.className = 'phone-check-result error';
-      this.state.newChatJid = null;
-      if (startBtn) startBtn.disabled = true;
-    } finally {
-      checkBtn.disabled = false;
-    }
-  }
-
-  startNewChat() {
-    if (this.state.newChatJid) {
-      this.openChat(this.state.newChatJid);
-      return;
-    }
-
-    const phone = document.getElementById('new-chat-phone').value.trim().replace(/\D/g, '');
-    if (phone && phone.length >= 10) {
-      const jid = `${phone}@s.whatsapp.net`;
-      this.state.newChatJid = jid;
-      this.openChat(jid);
-    } else {
-      utils.toast('Önce geçerli bir numara girin', 'warning');
-    }
-  }
-
-  async openChat(jid, retryCount = 0) {
-    this.stopChatStream();
-
-    this.state.currentChatJid = jid;
-
-    if (this.state.unreadChats.has(jid)) {
-      this.state.unreadChats.delete(jid);
-      this.updateUnreadBadge();
-    }
-
-    utils.hide('chat-welcome');
-    utils.hide('new-chat-panel');
-    utils.show('chat-active-view');
-
-    document.querySelectorAll('.chat-item').forEach(item => {
-      item.classList.toggle('active', item.dataset.jid === jid);
-    });
-
-    const chatItem = document.querySelector(`.chat-item[data-jid="${jid}"]`);
-    let name = chatItem?.querySelector('.chat-item-name')?.textContent || utils.formatJid(jid);
-    let initial = (name || '?').charAt(0).toUpperCase();
-
-    document.getElementById('chat-header-name').textContent = name;
-    document.getElementById('chat-header-status').textContent = 'yükleniyor...';
-    document.getElementById('chat-header-avatar').textContent = initial;
-
-    // Yeni sohbetlerde isim yerine numara görünmesin, profil bilgisini çek
-    if (!chatItem) {
-      api.getProfile(jid).then(profile => {
-        if (profile.success && profile.data && profile.data.name) {
-          name = profile.data.name;
-          initial = name.charAt(0).toUpperCase();
-          document.getElementById('chat-header-name').textContent = name;
-          document.getElementById('chat-header-avatar').textContent = initial;
-        }
-      }).catch(() => {});
-    }
-
-    const messagesContainer = document.getElementById('chat-messages');
-
-    if (retryCount === 0) {
-      messagesContainer.innerHTML = '<div class="chats-empty"><span class="spinner"></span></div>';
-    }
-
-    try {
-      const response = await api.getMessageHistory(jid, 50);
-
-      if (response.success && response.data?.messages?.length > 0) {
-        let lastDate = '';
-        let html = '';
-        const seenMessageIds = new Set();
-
-        const messages = [...response.data.messages].reverse();
-
-        messages.forEach(msg => {
-          if (msg.id && seenMessageIds.has(msg.id)) {
-            return;
-          }
-          if (msg.id) seenMessageIds.add(msg.id);
-
-          const isOutgoing = msg.fromMe === true || msg.isFromMe === true;
-          const time = utils.formatDate(msg.timestamp, 'time');
-          const content = msg.content || msg.message || msg.body || '';
-          const msgDate = new Date(msg.timestamp).toLocaleDateString('tr-TR');
-
-          if (msgDate !== lastDate) {
-            lastDate = msgDate;
-            html += `<div class="message-date-divider"><span>${this.getDateLabel(msg.timestamp)}</span></div>`;
-          }
-
-          const msgType = msg.type || 'text';
-          const isMedia = ['image', 'video', 'audio', 'document', 'sticker', 'ptt', 'location', 'liveLocation', 'vcard', 'contact', 'poll', 'event'].includes(msgType);
-          const mediaTagMatch = !isMedia && content.match(/^\[(?:Image|File|Video|Audio|Document|Sticker|Ptt|Media|Location|Live Location|Contact|Poll|Event|IMAGE|FILE|VIDEO|AUDIO|DOCUMENT|STICKER|PTT|MEDIA|LOCATION|CONTACT|POLL|EVENT|\d+\s*Contact)]$/i);
-          const treatAsMedia = isMedia || !!mediaTagMatch;
-
-          if (!treatAsMedia && !content.trim()) {
-            return;
-          }
-
-          if (treatAsMedia) {
-            let effectiveType = msgType;
-            if (mediaTagMatch) {
-              const tagMap = { 'IMAGE': 'image', 'FILE': 'document', 'VIDEO': 'video', 'AUDIO': 'audio', 'DOCUMENT': 'document', 'STICKER': 'sticker', 'PTT': 'ptt', 'MEDIA': 'image', 'LOCATION': 'location', 'LIVE LOCATION': 'liveLocation', 'CONTACT': 'vcard', 'POLL': 'poll', 'EVENT': 'event' };
-              effectiveType = tagMap[mediaTagMatch[1].toUpperCase()] || 'image';
-            }
-            const mediaLabels = {
-              'image': { icon: 'fa-image', label: 'Fotoğraf' },
-              'video': { icon: 'fa-video', label: 'Video' },
-              'audio': { icon: 'fa-headphones', label: 'Ses Mesajı' },
-              'ptt': { icon: 'fa-microphone', label: 'Sesli Mesaj' },
-              'document': { icon: 'fa-file-alt', label: 'Belge' },
-              'sticker': { icon: 'fa-sticky-note', label: 'Çıkartma' },
-              'location': { icon: 'fa-map-marker-alt', label: 'Konum' },
-              'liveLocation': { icon: 'fa-street-view', label: 'Canlı Konum' },
-              'vcard': { icon: 'fa-address-card', label: 'Kişi' },
-              'contact': { icon: 'fa-address-card', label: 'Kişi' },
-              'poll': { icon: 'fa-poll', label: 'Anket' },
-              'event': { icon: 'fa-calendar-check', label: 'Etkinlik' }
-            };
-            const media = mediaLabels[effectiveType] || mediaLabels[msgType] || { icon: 'fa-file', label: 'Dosya' };
-
-            html += `
-              <div class="message-bubble ${isOutgoing ? 'outgoing' : 'incoming'}" data-msg-id="${msg.id || ''}">
-                <div class="media-placeholder">
-                  <div class="media-placeholder-icon"><i class="fas ${media.icon}"></i></div>
-                  <div class="media-placeholder-info">
-                    <span class="media-placeholder-label">${media.label}</span>
-                    <span class="media-placeholder-hint"><i class="fas fa-lock"></i> Daha fazla gizlilik için bu mesajı yalnızca telefonunuzdan açabilirsiniz.</span>
-                  </div>
-                </div>
-                <div class="message-meta">
-                  <span class="message-time">${time}</span>
-                  ${isOutgoing ? `<span class="message-status ${msg.status === 'read' ? 'read' : ''}">
-                    <i class="fas fa-check-double"></i>
-                  </span>` : ''}
-                </div>
-              </div>
-            `;
-          } else {
-            html += `
-              <div class="message-bubble ${isOutgoing ? 'outgoing' : 'incoming'}" data-msg-id="${msg.id || ''}">
-                <div class="message-text">${utils.escapeHtml(content)}</div>
-                <div class="message-meta">
-                  <span class="message-time">${time}</span>
-                  ${isOutgoing ? `<span class="message-status ${msg.status === 'read' ? 'read' : ''}">
-                    <i class="fas fa-check-double"></i>
-                  </span>` : ''}
-                </div>
-              </div>
-            `;
-          }
-        });
-
-        messagesContainer.innerHTML = html;
-        messagesContainer.scrollTop = messagesContainer.scrollHeight;
-
-        document.getElementById('chat-header-status').textContent = `${response.data.messages.length} mesaj`;
-      } else {
-        messagesContainer.innerHTML = `
-          <div class="chats-empty">
-            <i class="fas fa-comments"></i>
-            <p>Henüz mesaj yok</p>
-          </div>
-        `;
-        document.getElementById('chat-header-status').textContent = 'Yeni sohbet';
-      }
-
-      try {
-        await api.markAsRead(jid);
-      } catch (readErr) {
-        console.log('Failed to mark as read:', readErr);
-      }
-
-      this.startChatStream(jid);
-
-      this.loadChats();
-    } catch (error) {
-      console.error('Load chat error:', error);
-
-      const isRateLimit = error.message && (error.message.includes('Rate limit') || error.message.includes('Çok fazla istek') || error.message.includes('Too many requests'));
-
-      if (isRateLimit && retryCount < 3) {
-        const waitTime = (retryCount + 1) * 2;
-        document.getElementById('chat-header-status').textContent = `${waitTime} saniye bekliyor...`;
-
-        messagesContainer.innerHTML = `
-          <div class="chats-empty">
-            <span class="spinner"></span>
-            <p>Çok fazla istek. ${waitTime} saniye bekleniyor...</p>
-          </div>
-        `;
-
-        setTimeout(() => {
-          if (this.state.currentChatJid === jid) {
-            this.openChat(jid, retryCount + 1);
-          }
-        }, waitTime * 1000);
-        return;
-      }
-
-      let errorMessage = error.message;
-      if (isRateLimit) {
-        errorMessage = 'Çok fazla istek gönderildi. Lütfen birkaç saniye bekleyin.';
-      }
-
-      messagesContainer.innerHTML = `
-        <div class="chats-empty">
-          <i class="fas fa-exclamation-triangle"></i>
-          <p>Mesajlar yüklenemedi</p>
-          <small>${utils.escapeHtml(errorMessage)}</small>
-          <button class="btn btn-secondary btn-sm" onclick="app.openChat('${jid}')" style="margin-top: 10px;">
-            <i class="fas fa-redo"></i> Tekrar Dene
-          </button>
-        </div>
-      `;
-      document.getElementById('chat-header-status').textContent = 'Yükleme hatası';
-    }
-
-    document.getElementById('chat-message-input').focus();
-  }
-
-  getDateLabel(timestamp) {
-    const date = new Date(timestamp);
-    const today = new Date();
-    const yesterday = new Date(today);
-    yesterday.setDate(yesterday.getDate() - 1);
-
-    if (date.toDateString() === today.toDateString()) return 'Bugün';
-    if (date.toDateString() === yesterday.toDateString()) return 'Dün';
-    return date.toLocaleDateString('tr-TR', { day: 'numeric', month: 'long' });
-  }
-
-  closeChat() {
-    this.stopChatStream();
-
-    this.state.currentChatJid = null;
-    utils.hide('chat-active-view');
-    utils.show('chat-welcome');
-
-    document.querySelectorAll('.chat-item').forEach(item => {
-      item.classList.remove('active');
-    });
-  }
-
-  async sendChatMessage() {
-    const input = document.getElementById('chat-message-input');
-    const message = input.value.trim();
-    const jid = this.state.currentChatJid;
-
-    if (!message || !jid) return;
-
-    const sendBtn = document.getElementById('chat-send-btn');
-    const messagesContainer = document.getElementById('chat-messages');
-
-    if (!this.state.isConnected) {
-      try {
-        const statusResponse = await api.getStatus();
-        if (!statusResponse.success || !statusResponse.data?.isConnected) {
-          utils.toast('WhatsApp bağlı değil. Lütfen önce bağlanın.', 'warning');
-          return;
-        }
-        this.state.isConnected = true;
-        this.updateConnectionUI();
-      } catch (error) {
-        utils.toast('Bağlantı kontrol edilemedi', 'error');
-        return;
-      }
-    }
-
-    try {
-      sendBtn.disabled = true;
-      input.disabled = true;
-
-      const time = new Date().toLocaleTimeString('tr-TR', { hour: '2-digit', minute: '2-digit' });
-
-      // "Henüz mesaj yok" uyarısını kaldır
-      const emptyState = messagesContainer.querySelector('.chats-empty');
-      if (emptyState) emptyState.remove();
-
-      const tempMsg = document.createElement('div');
-      tempMsg.className = 'message-bubble outgoing';
-      tempMsg.innerHTML = `
-        <div class="message-text">${utils.escapeHtml(message)}</div>
-        <div class="message-meta">
-          <span class="message-time">${time}</span>
-          <span class="message-status sending"><i class="fas fa-clock"></i></span>
-        </div>
-      `;
-      messagesContainer.appendChild(tempMsg);
-      messagesContainer.scrollTop = messagesContainer.scrollHeight;
-
-      input.value = '';
-      input.style.height = 'auto';
-
-      await this.sendTypingIfEnabled(jid);
-
-      const response = await api.sendMessage(jid, message);
-
-      if (response.success) {
-        tempMsg.querySelector('.message-status').innerHTML = '<i class="fas fa-check"></i>';
-        tempMsg.querySelector('.message-status').classList.remove('sending');
-
-        // Sohbet listesini güncelle (yeni sohbet hemen görünsün)
-        this.loadChats();
-      } else {
-        throw new Error(response.message || 'Mesaj gönderilemedi');
-      }
-    } catch (error) {
-      console.error('Send message error:', error);
-
-      const lastBubble = messagesContainer.querySelector('.message-bubble:last-child');
-      if (lastBubble) {
-        const statusEl = lastBubble.querySelector('.message-status');
-        if (statusEl) {
-          statusEl.innerHTML = '<i class="fas fa-exclamation-triangle" style="color: #f44336;"></i>';
-          statusEl.classList.remove('sending');
-          statusEl.classList.add('failed');
-          statusEl.title = 'Gönderim başarısız - tıklayarak tekrar deneyin';
-          statusEl.style.cursor = 'pointer';
-
-          const failedMessage = lastBubble.querySelector('.message-text')?.textContent || '';
-          statusEl.onclick = async () => {
-            statusEl.innerHTML = '<i class="fas fa-clock"></i>';
-            statusEl.classList.remove('failed');
-            statusEl.classList.add('sending');
-            statusEl.style.cursor = 'default';
-            statusEl.onclick = null;
-
-            try {
-              const retryResponse = await api.sendMessage(jid, failedMessage);
-              if (retryResponse.success) {
-                statusEl.innerHTML = '<i class="fas fa-check"></i>';
-                statusEl.classList.remove('sending');
-                utils.toast('Mesaj gönderildi', 'success');
-              } else {
-                throw new Error(retryResponse.message || 'Tekrar gönderim başarısız');
-              }
-            } catch (retryError) {
-              statusEl.innerHTML = '<i class="fas fa-exclamation-triangle" style="color: #f44336;"></i>';
-              statusEl.classList.remove('sending');
-              statusEl.classList.add('failed');
-              statusEl.style.cursor = 'pointer';
-              utils.toast('Tekrar gönderim başarısız', 'error');
-            }
-          };
-        }
-      }
-
-      try {
-        const statusResponse = await api.getStatus();
-        if (statusResponse.success && statusResponse.data) {
-          this.state.isConnected = statusResponse.data.isConnected;
-          this.state.isConnecting = statusResponse.data.isConnecting;
-          this.updateConnectionUI();
-
-          if (!statusResponse.data.isConnected) {
-            utils.toast('Mesaj gönderilemedi: WhatsApp yeniden bağlanıyor...', 'warning');
-          } else {
-            const errorMsg = error.message || '';
-            if (errorMsg.includes('Maksimum deneme')) {
-              utils.toast('Mesaj gönderilemedi: Bağlantı sorunları yaşanıyor', 'error');
-            } else {
-              utils.toast('Mesaj gönderilemedi: ' + error.message, 'error');
-            }
-          }
-        }
-      } catch {
-        utils.toast('Mesaj gönderilemedi: ' + error.message, 'error');
-      }
-    } finally {
-      sendBtn.disabled = false;
-      input.disabled = false;
-      input.focus();
-    }
-  }
-
   switchMessageType(type) {
     this.state.messageType = type;
 
@@ -2199,26 +1580,6 @@ class WhatsAppBOTApp {
 
     utils.toggle('single-message-form', type === 'single');
     utils.toggle('bulk-message-form', type === 'bulk');
-  }
-
-  async sendTypingIfEnabled(jid) {
-    try {
-      const getTypingDuration = () => new Promise(resolve => {
-        if (typeof chrome !== 'undefined' && chrome.storage) {
-          chrome.storage.local.get(['typingDuration'], (result) => resolve(result.typingDuration || 0));
-        } else {
-          resolve(0);
-        }
-      });
-      const duration = await getTypingDuration();
-      if (duration > 0) {
-        await api.sendTyping(jid, 'composing');
-        await new Promise(r => setTimeout(r, duration));
-        await api.sendTyping(jid, 'paused');
-      }
-    } catch (e) {
-      console.debug('Typing indicator failed:', e);
-    }
   }
 
   setScheduleMode(mode) {
@@ -2274,8 +1635,9 @@ class WhatsAppBOTApp {
       return;
     }
 
-    if (type !== 'text' && !mediaUrl) {
-      utils.toast('Medya URL girin', 'warning');
+    const mediaList = this.state.singleMediaList || [];
+    if (type !== 'text' && mediaList.length === 0 && !mediaUrl) {
+      utils.toast('Medya dosyası ekleyin veya URL girin', 'warning');
       return;
     }
 
@@ -2286,10 +1648,9 @@ class WhatsAppBOTApp {
 
     if (isScheduled && datetime) {
       const scheduledTime = new Date(datetime);
-      const now = new Date();
-      const minTime = new Date(now.getTime() + 60000);
-      if (scheduledTime <= minTime) {
-        utils.toast('Gönderim zamanı en az 1 dakika sonrası olmalıdır', 'warning');
+      const minTime = new Date(Date.now() + 10 * 60000);
+      if (scheduledTime < minTime) {
+        utils.toast('Gönderim zamanı en az 10 dakika sonrası olmalıdır', 'warning');
         document.getElementById('single-datetime').min = utils.getMinScheduleDate();
         return;
       }
@@ -2324,33 +1685,48 @@ class WhatsAppBOTApp {
 
       const jid = `${normalizedPhone}@s.whatsapp.net`;
 
-      if (isScheduled) {
-        const scheduledAt = new Date(datetime).toISOString();
-        const response = await api.scheduleMessage(jid, message, scheduledAt, type, { mediaUrl, caption });
-
-        if (response.success) {
-          utils.toast('Mesaj zamanlandı!', 'success');
-          document.getElementById('single-recipient').value = '';
-          document.getElementById('single-message').value = '';
-          document.getElementById('single-datetime').value = '';
-          const sc1 = document.getElementById('single-char-count'); if (sc1) sc1.textContent = '0';
-          this.setScheduleMode('now');
-          this.loadScheduledMessages();
-        } else {
-          throw new Error(response.message || 'Mesaj zamanlanamadı');
-        }
+      // Gönderilecek birimler: çoklu dosyada her dosya ayrı mesaj olur
+      // (WhatsApp'ın kendisi de böyle yapar); açıklama yalnız ilk dosyaya eklenir.
+      let tasks;
+      if (mediaList.length > 0) {
+        tasks = mediaList.map((m, i) => ({
+          type: m.mediaType,
+          message: '',
+          options: { mediaBase64: m.base64, fileName: m.fileName, mimetype: m.mimetype, caption: i === 0 ? caption : '' }
+        }));
+      } else if (type !== 'text') {
+        tasks = [{ type, message: '', options: { mediaUrl, caption } }];
       } else {
-        await this.sendTypingIfEnabled(jid);
-        const response = await api.sendMessage(jid, message, type, { mediaUrl, caption });
+        tasks = [{ type: 'text', message, options: {} }];
+      }
 
-        if (response.success) {
-          utils.toast('Mesaj gönderildi!', 'success');
-          document.getElementById('single-recipient').value = '';
-          document.getElementById('single-message').value = '';
-          const sc2 = document.getElementById('single-char-count'); if (sc2) sc2.textContent = '0';
-        } else {
-          throw new Error(response.message || 'Mesaj gönderilemedi');
-        }
+      const scheduledAt = isScheduled ? new Date(datetime).toISOString() : null;
+      let ok = 0;
+      for (const t of tasks) {
+        const res = scheduledAt
+          ? await api.scheduleMessage(jid, t.message, scheduledAt, t.type, t.options)
+          : await api.sendMessage(jid, t.message, t.type, t.options);
+        if (res.success) ok++;
+      }
+
+      if (ok === 0) throw new Error(isScheduled ? 'Mesaj zamanlanamadı' : 'Mesaj gönderilemedi');
+
+      const verb = isScheduled ? 'zamanlandı' : 'gönderildi';
+      utils.toast(
+        ok === tasks.length ? `Mesaj ${verb}! (${ok} öğe)` : `${ok}/${tasks.length} öğe ${verb}`,
+        ok === tasks.length ? 'success' : 'warning'
+      );
+
+      this.saveLastUsed('single', { type, message, caption, mediaUrl: mediaList.length ? '' : mediaUrl });
+      document.getElementById('single-recipient').value = '';
+      document.getElementById('single-message').value = '';
+      const captionEl = document.getElementById('single-caption'); if (captionEl) captionEl.value = '';
+      const sc1 = document.getElementById('single-char-count'); if (sc1) sc1.textContent = '0';
+      this.clearMedia('single');
+      if (isScheduled) {
+        document.getElementById('single-datetime').value = '';
+        this.setScheduleMode('now');
+        this.loadScheduledMessages();
       }
     } catch (error) {
       const errorMsg = error.data?.error || error.data?.message || error.message || 'İşlem başarısız';
@@ -2371,6 +1747,219 @@ class WhatsAppBOTApp {
     utils.toggle('bulk-media-group', type !== 'text');
   }
 
+  // ─────────────── MEDYA SÜRÜKLE-BIRAK (Task 2) ───────────────
+
+  static MAX_FILES = 5;
+  static MAX_FILE_SIZE = 2 * 1024 * 1024; // 2 MB
+
+  setupDropzone(prefix) {
+    const zone = document.getElementById(`${prefix}-dropzone`);
+    const input = document.getElementById(`${prefix}-file-input`);
+    if (!zone || !input) return;
+
+    if (!this.state[`${prefix}MediaList`]) this.state[`${prefix}MediaList`] = [];
+
+    zone.addEventListener('click', (e) => {
+      if (e.target.closest('.media-file-remove')) return;
+      input.click();
+    });
+
+    input.addEventListener('change', () => {
+      if (input.files?.length) this.handleMediaFiles(prefix, input.files);
+      input.value = ''; // aynı dosya tekrar seçilebilsin
+    });
+
+    ['dragenter', 'dragover'].forEach(evt => {
+      zone.addEventListener(evt, (e) => {
+        e.preventDefault(); e.stopPropagation();
+        zone.classList.add('dragover');
+      });
+    });
+    ['dragleave', 'dragend', 'drop'].forEach(evt => {
+      zone.addEventListener(evt, (e) => {
+        e.preventDefault(); e.stopPropagation();
+        zone.classList.remove('dragover');
+      });
+    });
+    zone.addEventListener('drop', (e) => {
+      if (e.dataTransfer?.files?.length) this.handleMediaFiles(prefix, e.dataTransfer.files);
+    });
+  }
+
+  handleMediaFiles(prefix, fileList) {
+    const list = this.state[`${prefix}MediaList`] || (this.state[`${prefix}MediaList`] = []);
+
+    for (const file of Array.from(fileList)) {
+      if (list.length >= WhatsAppBOTApp.MAX_FILES) {
+        utils.toast(`En fazla ${WhatsAppBOTApp.MAX_FILES} dosya eklenebilir`, 'warning');
+        break;
+      }
+      if (file.size > WhatsAppBOTApp.MAX_FILE_SIZE) {
+        utils.toast(`"${file.name}" çok büyük (en fazla 2 MB)`, 'warning');
+        continue;
+      }
+
+      const reader = new FileReader();
+      reader.onload = () => {
+        if (list.length >= WhatsAppBOTApp.MAX_FILES) return;
+        // base64 yalnız bellekte tutulur; gönderim sonrası temizlenir.
+        list.push({
+          base64: String(reader.result || '').split(',')[1] || '',
+          fileName: file.name,
+          mimetype: file.type || 'application/octet-stream',
+          size: file.size,
+          mediaType: this.detectMediaType(file.type)
+        });
+        this.renderMediaList(prefix);
+      };
+      reader.onerror = () => utils.toast(`"${file.name}" okunamadı`, 'error');
+      reader.readAsDataURL(file);
+    }
+
+    // Dosya eklenince URL alanını temizle (dosya öncelikli).
+    const urlInput = document.getElementById(`${prefix}-media-url`);
+    if (urlInput) urlInput.value = '';
+  }
+
+  detectMediaType(mime) {
+    const m = (mime || '').toLowerCase();
+    if (m.startsWith('image/')) return 'image';
+    if (m.startsWith('video/')) return 'video';
+    return 'document';
+  }
+
+  renderMediaList(prefix) {
+    const list = this.state[`${prefix}MediaList`] || [];
+    const empty = document.getElementById(`${prefix}-dropzone-empty`);
+    const listEl = document.getElementById(`${prefix}-file-list`);
+    if (!listEl) return;
+
+    // İlk dosyaya göre form tipini ayarla (medya bölümü görünür kalsın).
+    if (list.length > 0) {
+      if (prefix === 'single') this.setSingleMessageType(list[0].mediaType);
+      else this.setBulkMessageType(list[0].mediaType);
+    }
+
+    if (list.length === 0) {
+      if (empty) utils.show(empty);
+      utils.hide(listEl);
+      listEl.innerHTML = '';
+      return;
+    }
+
+    if (empty) utils.hide(empty);
+    utils.show(listEl);
+
+    const iconMap = { image: 'fa-image', video: 'fa-video', document: 'fa-file-lines' };
+    listEl.innerHTML = list.map((m, i) => {
+      const kb = m.size / 1024;
+      const sizeStr = kb >= 1024 ? `${(kb / 1024).toFixed(1)} MB` : `${Math.round(kb)} KB`;
+      return `
+        <div class="media-file">
+          <i class="fas ${iconMap[m.mediaType] || 'fa-file'} media-file-icon"></i>
+          <div class="media-file-meta"><span class="media-file-name">${utils.escapeHtml(m.fileName)}</span><span class="media-file-size">${sizeStr}</span></div>
+          <button type="button" class="media-file-remove" data-index="${i}" title="Kaldır"><i class="fas fa-times"></i></button>
+        </div>`;
+    }).join('');
+
+    listEl.querySelectorAll('.media-file-remove').forEach(btn => {
+      btn.addEventListener('click', (e) => {
+        e.stopPropagation();
+        const idx = parseInt(btn.dataset.index, 10);
+        list.splice(idx, 1);
+        this.renderMediaList(prefix);
+      });
+    });
+  }
+
+  clearMedia(prefix) {
+    this.state[`${prefix}MediaList`] = [];
+    const input = document.getElementById(`${prefix}-file-input`);
+    if (input) input.value = '';
+    this.renderMediaList(prefix);
+  }
+
+  // ─────────────── GEÇERSİZ NUMARA POPUP (Task 1) ───────────────
+
+  showInvalidNumbersPopup(numbers, allInvalid = false) {
+    const backdrop = document.getElementById('invalid-backdrop');
+    const dialog = document.getElementById('invalid-dialog');
+    const msg = document.getElementById('invalid-message');
+    const list = document.getElementById('invalid-list');
+    if (!backdrop || !dialog || !list) return;
+
+    if (msg) {
+      msg.textContent = allInvalid
+        ? 'Hiçbir numaranın WhatsApp profili yok'
+        : `${numbers.length} numaranın WhatsApp profili yok (gönderilmedi)`;
+    }
+
+    list.innerHTML = numbers
+      .map(n => `<div class="invalid-list-item"><i class="fas fa-xmark"></i> +${utils.escapeHtml(String(n))}</div>`)
+      .join('');
+
+    backdrop.classList.remove('hidden');
+    dialog.classList.remove('hidden');
+  }
+
+  closeInvalidPopup() {
+    document.getElementById('invalid-backdrop')?.classList.add('hidden');
+    document.getElementById('invalid-dialog')?.classList.add('hidden');
+  }
+
+  // ─────────────── SON KULLANILAN AYARLAR (Task 3) ───────────────
+
+  saveLastUsed(kind, data) {
+    const key = `lastUsed_${kind}`;
+    if (typeof chrome !== 'undefined' && chrome.storage) {
+      chrome.storage.local.set({ [key]: data });
+    } else {
+      localStorage.setItem(key, JSON.stringify(data));
+    }
+  }
+
+  getLastUsed(kind) {
+    return new Promise((resolve) => {
+      const key = `lastUsed_${kind}`;
+      if (typeof chrome !== 'undefined' && chrome.storage) {
+        chrome.storage.local.get([key], (r) => resolve(r[key] || null));
+      } else {
+        const v = localStorage.getItem(key);
+        resolve(v ? JSON.parse(v) : null);
+      }
+    });
+  }
+
+  async restoreLastUsed() {
+    const single = await this.getLastUsed('single');
+    if (single) {
+      if (single.type) this.setSingleMessageType(single.type);
+      if (single.message) {
+        const el = document.getElementById('single-message');
+        if (el) {
+          el.value = single.message;
+          const c = document.getElementById('single-char-count');
+          if (c) c.textContent = single.message.length;
+        }
+      }
+      if (single.caption) { const el = document.getElementById('single-caption'); if (el) el.value = single.caption; }
+      if (single.mediaUrl) { const el = document.getElementById('single-media-url'); if (el) el.value = single.mediaUrl; }
+    }
+
+    const bulk = await this.getLastUsed('bulk');
+    if (bulk) {
+      if (bulk.type) this.setBulkMessageType(bulk.type);
+      if (bulk.message) {
+        const el = document.getElementById('bulk-message');
+        if (el) { el.value = bulk.message; this.updateBulkCharCount(bulk.message); }
+      }
+      if (bulk.caption) { const el = document.getElementById('bulk-caption'); if (el) el.value = bulk.caption; }
+      if (bulk.mediaUrl) { const el = document.getElementById('bulk-media-url'); if (el) el.value = bulk.mediaUrl; }
+      if (typeof bulk.minDelay === 'number') { const el = document.getElementById('bulk-min-delay'); if (el) el.value = bulk.minDelay; }
+      if (typeof bulk.maxDelay === 'number') { const el = document.getElementById('bulk-max-delay'); if (el) el.value = bulk.maxDelay; }
+    }
+  }
+
   updateRecipientCount(text) {
     const lines = text.split(/\n/).filter(line => line.trim().length > 0);
     document.getElementById('recipient-count').textContent = lines.length;
@@ -2388,9 +1977,9 @@ class WhatsAppBOTApp {
     const caption = document.getElementById('bulk-caption').value.trim();
     const minDelay = parseInt(document.getElementById('bulk-min-delay').value) * 1000;
     const maxDelay = parseInt(document.getElementById('bulk-max-delay').value) * 1000;
-    const useTimeWindow = document.getElementById('bulk-time-window').checked;
     const useSchedule = document.getElementById('bulk-schedule-enabled')?.checked;
     const scheduleDateTime = document.getElementById('bulk-start-datetime')?.value;
+    const mediaList = this.state.bulkMediaList || [];
 
     const recipients = utils.parseRecipients(recipientsText);
 
@@ -2404,17 +1993,16 @@ class WhatsAppBOTApp {
       return;
     }
 
-    if (type !== 'text' && !mediaUrl) {
-      utils.toast('Medya URL girin', 'warning');
+    if (type !== 'text' && mediaList.length === 0 && !mediaUrl) {
+      utils.toast('Medya dosyası ekleyin veya URL girin', 'warning');
       return;
     }
 
     if (useSchedule && scheduleDateTime) {
       const scheduledTime = new Date(scheduleDateTime);
-      const now = new Date();
-      const minTime = new Date(now.getTime() + 60000);
-      if (scheduledTime <= minTime) {
-        utils.toast('Başlangıç zamanı en az 1 dakika sonrası olmalıdır', 'warning');
+      const minTime = new Date(Date.now() + 10 * 60000);
+      if (scheduledTime < minTime) {
+        utils.toast('Başlangıç zamanı en az 10 dakika sonrası olmalıdır', 'warning');
         const dtInput = document.getElementById('bulk-start-datetime');
         if (dtInput) dtInput.min = utils.getMinScheduleDate();
         return;
@@ -2444,32 +2032,59 @@ class WhatsAppBOTApp {
     }
 
     try {
+      utils.setLoading(btn, true, 'Numaralar kontrol ediliyor...');
+
+      // Numara/profil kontrolü: geçersizleri ayıkla, kullanıcıya popup ile bildir.
+      let validRecipients = recipients;
+      try {
+        const valRes = await api.validateNumbers(recipients);
+        if (valRes.success && valRes.data) {
+          validRecipients = valRes.data.valid || [];
+          const invalid = valRes.data.invalid || [];
+
+          if (validRecipients.length === 0) {
+            this.showInvalidNumbersPopup(invalid, true);
+            return;
+          }
+          if (invalid.length > 0) {
+            this.showInvalidNumbersPopup(invalid, false);
+          }
+        }
+      } catch (valErr) {
+        console.error('Number validation failed:', valErr);
+        // Doğrulama yapılamazsa girilen numaralarla devam et (engelleyici olma).
+      }
+
       utils.setLoading(btn, true, 'Başlatılıyor...');
 
-      const options = { minDelay, maxDelay, mediaUrl, caption };
-
-      if (useTimeWindow) {
-        options.timeWindow = {
-          startTime: document.getElementById('bulk-start-time').value,
-          endTime: document.getElementById('bulk-end-time').value
-        };
-      }
+      // Çoklu dosya: her alıcıya tüm dosyalar sırayla gider (açıklama ilk dosyada).
+      const bulkType = mediaList.length ? mediaList[0].mediaType : type;
+      const options = mediaList.length
+        ? { minDelay, maxDelay, caption, mediaItems: mediaList.map(m => ({ type: m.mediaType, mediaBase64: m.base64, fileName: m.fileName, mimetype: m.mimetype })) }
+        : { minDelay, maxDelay, mediaUrl, caption };
 
       if (useSchedule && scheduleDateTime) {
         options.scheduledAt = new Date(scheduleDateTime).toISOString();
       }
 
-      const response = await api.createBulkJob(recipients, message, type, options);
+      const response = await api.createBulkJob(validRecipients, message, bulkType, options);
 
       if (response.success) {
         const successMsg = useSchedule ?
-          `Toplu gönderim zamanlandı (${recipients.length} alıcı)` :
-          `Toplu gönderim başlatıldı (${recipients.length} alıcı)`;
+          `Toplu gönderim zamanlandı (${validRecipients.length} alıcı)` :
+          `Toplu gönderim başlatıldı (${validRecipients.length} alıcı)`;
         utils.toast(successMsg, 'success');
+        this.saveLastUsed('bulk', {
+          type, message, caption,
+          mediaUrl: mediaList.length ? '' : mediaUrl,
+          minDelay: parseInt(document.getElementById('bulk-min-delay').value),
+          maxDelay: parseInt(document.getElementById('bulk-max-delay').value)
+        });
         document.getElementById('bulk-recipients').value = '';
         document.getElementById('bulk-message').value = '';
         document.getElementById('recipient-count').textContent = '0';
         document.getElementById('bulk-char-count').textContent = '0';
+        this.clearMedia('bulk');
         const scheduleCheckbox = document.getElementById('bulk-schedule-enabled');
         if (scheduleCheckbox) {
           scheduleCheckbox.checked = false;
@@ -2477,8 +2092,6 @@ class WhatsAppBOTApp {
         }
         document.querySelectorAll('.schedule-option[data-bulk-schedule]').forEach(o => o.classList.remove('active'));
         document.querySelector('.schedule-option[data-bulk-schedule="now"]')?.classList.add('active');
-        document.querySelectorAll('.schedule-option[data-time-window]').forEach(o => o.classList.remove('active'));
-        document.querySelector('.schedule-option[data-time-window="off"]')?.classList.add('active');
         await this.loadBulkJobs();
       }
     } catch (error) {
@@ -2558,7 +2171,6 @@ class WhatsAppBOTApp {
             <span><i class="fas fa-calendar"></i> ${createdAt}</span>
           </div>
           ${job.type && job.type !== 'text' ? `<div class="job-detail-row"><span><i class="fas fa-file"></i> Tip: ${job.type}</span></div>` : ''}
-          ${job.timeWindow ? `<div class="job-detail-row"><span><i class="fas fa-clock"></i> Zaman: ${job.timeWindow.startTime} - ${job.timeWindow.endTime}</span></div>` : ''}
         </div>
         <div class="job-actions">
           ${isActive ? `<button class="btn btn-warning btn-sm" data-action="pause" data-job-id="${job.jobId}" title="Duraklat"><i class="fas fa-pause"></i></button>` : ''}
@@ -2883,28 +2495,25 @@ class WhatsAppBOTApp {
   }
 
   async checkConnectionHealth() {
+    // Sunucu yapılandırılmadıysa hiç sorgulama yapma (gereksiz /auth/status polling önlenir).
+    if (!this.state.apiReady) return;
     if (this._healthCheckInProgress) return;
     this._healthCheckInProgress = true;
 
     try {
-      if (this.state.isConnected && !api.isMessageStreamActive()) {
-        console.log('SSE stream inactive but state says connected, restarting immediately...');
-        this.startGlobalMessageStream();
+      // Bağlı görünüyorsak: sunucu hâlâ bağlı mı diye doğrula.
+      if (this.state.isConnected) {
         try {
           const response = await api.getStatus();
           if (response.success && response.data) {
+            this.updateEncryptionAlert(response.data.encryptionAlert);
             if (!response.data.isConnected) {
               console.log('Connection lost detected in health check');
               this.state.isConnected = false;
               this.state.isConnecting = response.data.isConnecting || false;
               this.state.sessionInfo = null;
-
-              if (!response.data.isConnecting) {
-                this.resetConnectButton();
-              }
-
+              if (!response.data.isConnecting) this.resetConnectButton();
               this.updateConnectionUI();
-              this.stopGlobalMessageStream();
               utils.toast('WhatsApp bağlantısı kesildi', 'warning');
             }
           }
@@ -2914,54 +2523,13 @@ class WhatsAppBOTApp {
           this.state.isConnecting = false;
           this.state.apiReady = false;
           this.updateConnectionUI();
-          this.stopGlobalMessageStream();
           this.updateApiStatusDot('error');
-          utils.toast('Sunucu bağlantısı kesildi', 'error');
         }
         return;
       }
 
-      if (this.state.isConnected) {
-        try {
-          const response = await api.getStatus();
-          if (response.success && response.data) {
-            if (!response.data.isConnected && this.state.isConnected) {
-              console.log('Connection lost detected in health check');
-              this.state.isConnected = false;
-              this.state.isConnecting = response.data.isConnecting || false;
-              this.state.sessionInfo = null;
-
-              if (!response.data.isConnecting) {
-                this.resetConnectButton();
-              }
-
-              this.updateConnectionUI();
-              this.stopGlobalMessageStream();
-              utils.toast('WhatsApp bağlantısı kesildi', 'warning');
-            } else if (response.data.isConnected && !this.state.isConnected) {
-              console.log('State out of sync, fixing...');
-              this.state.isConnected = true;
-              this.state.isConnecting = false;
-              this.state.sessionInfo = response.data.session;
-              this.updateConnectionUI();
-
-              if (!api.isMessageStreamActive()) {
-                this.startGlobalMessageStream();
-              }
-            }
-          }
-        } catch (apiError) {
-          console.error('API unreachable during periodic health check:', apiError);
-          this.state.isConnected = false;
-          this.state.isConnecting = false;
-          this.state.apiReady = false;
-          this.updateConnectionUI();
-          this.stopGlobalMessageStream();
-          this.updateApiStatusDot('error');
-        }
-      }
-
-      if (!this.state.isConnected && !this.state.isConnecting) {
+      // Bağlı değil görünüyoruz ama sunucu bağlıysa durumu düzelt.
+      if (!this.state.isConnecting) {
         try {
           const response = await api.getStatus();
           if (response.success && response.data?.isConnected) {
@@ -2969,7 +2537,6 @@ class WhatsAppBOTApp {
             this.state.isConnected = true;
             this.state.sessionInfo = response.data.session;
             this.updateConnectionUI();
-            this.startGlobalMessageStream();
           }
         } catch {
         }
@@ -2981,319 +2548,21 @@ class WhatsAppBOTApp {
     }
   }
 
-  startGlobalMessageStream() {
-    console.log('Starting global message stream...');
-
-    this.stopGlobalMessageStream();
-
-    let streamReconnectAttempts = 0;
-    const maxStreamReconnectAttempts = 5;
-
-    api.startMessageStream(
-      (message) => {
-        console.log('New message received:', message);
-
-        const msgFrom = (message.from || '').split('@')[0].split(':')[0];
-        const currentChat = (this.state.currentChatJid || '').split('@')[0].split(':')[0];
-
-        const isChatOpen = this.state.currentTab === 'chats' && currentChat && msgFrom === currentChat;
-
-        if (!isChatOpen) {
-          this.state.unreadChats.add(message.from);
-          this.updateUnreadBadge();
-
-          if (this.state.currentTab === 'chats') {
-            this.loadChats();
-          }
-        } else {
-          this.appendMessageToChat(message);
-        }
-      },
-      (data) => {
-        console.log('SSE init:', data);
-        if (data.isConnected !== undefined) {
-          const wasConnected = this.state.isConnected;
-
-          if (!data.isConnected && wasConnected) {
-            api.getStatus().then(response => {
-              if (response.success && response.data) {
-                if (response.data.isConnected) {
-                  console.log('SSE said disconnected but API says connected, restarting stream...');
-                  if (streamReconnectAttempts < maxStreamReconnectAttempts) {
-                    streamReconnectAttempts++;
-                    setTimeout(() => this.startGlobalMessageStream(), 2000);
-                  }
-                } else {
-                  this.state.isConnected = false;
-                  this.state.isConnecting = response.data.isConnecting || false;
-                  this.resetConnectButton();
-                  this.updateConnectionUI();
-                  this.stopGlobalMessageStream();
-                  utils.toast('WhatsApp bağlantısı kesildi', 'warning');
-                }
-              }
-            }).catch(() => {
-              this.state.isConnected = false;
-              this.state.isConnecting = false;
-              this.resetConnectButton();
-              this.updateConnectionUI();
-              this.stopGlobalMessageStream();
-            });
-          } else if (data.isConnected) {
-            this.state.isConnected = true;
-            this.state.isConnecting = false;
-            streamReconnectAttempts = 0;
-            this.updateConnectionUI();
-          }
-        }
-      },
-      (error) => {
-        console.error('Global SSE error:', error);
-        this.handleSSEError();
-      }
-    );
+  /** Şifreleme uyarı bandını gösterir/gizler (sunucudan gelen encryptionAlert). */
+  updateEncryptionAlert(active) {
+    const banner = document.getElementById('encryption-alert');
+    if (banner) banner.classList.toggle('hidden', !active);
   }
 
-  stopGlobalMessageStream() {
-    console.log('Stopping global message stream...');
-    api.stopMessageStream();
-  }
-
-  async handleSSEError() {
-    console.log('Handling SSE error, checking connection status...');
-
-    if (this._sseErrorHandling) {
-      console.log('SSE error handling already in progress');
-      return;
-    }
-    this._sseErrorHandling = true;
-
+  /** "Yeniden Bağlan": oturumu silmeden bağlantıyı yeniler (şifreleme kurtarma). */
+  async reconnectEncryption() {
     try {
-      const response = await api.getStatus();
-
-      if (response.success && response.data) {
-        const wasConnected = this.state.isConnected;
-        const isNowConnected = response.data.isConnected;
-        const isNowConnecting = response.data.isConnecting || false;
-
-        this.state.isConnected = isNowConnected;
-        this.state.isConnecting = isNowConnecting;
-        this.state.sessionInfo = response.data.session;
-
-        if (!isNowConnected && !isNowConnecting) {
-          this.resetConnectButton();
-        }
-
-        this.updateConnectionUI();
-
-        if (wasConnected && !isNowConnected && !isNowConnecting) {
-          utils.toast('WhatsApp bağlantısı kesildi', 'warning');
-        }
-
-        if (isNowConnected) {
-          console.log('Still connected, restarting SSE stream in 3s...');
-          setTimeout(() => {
-            if (this.state.isConnected) {
-              this.startGlobalMessageStream();
-            }
-          }, 3000);
-        }
-      }
+      await api.reconnect();
+      utils.toast('Bağlantı yenileniyor, lütfen bekleyin...', 'info');
+      this.updateEncryptionAlert(false);
+      setTimeout(() => this.checkConnectionHealth(), 4000);
     } catch (error) {
-      console.error('Status check failed:', error);
-      setTimeout(async () => {
-        try {
-          const retryResponse = await api.getStatus();
-          if (retryResponse.success && retryResponse.data) {
-            this.state.isConnected = retryResponse.data.isConnected;
-            this.state.isConnecting = retryResponse.data.isConnecting || false;
-
-            if (retryResponse.data.isConnected) {
-              this.updateConnectionUI();
-              this.startGlobalMessageStream();
-            } else {
-              this.resetConnectButton();
-              this.updateConnectionUI();
-            }
-          }
-        } catch {
-          this.state.isConnected = false;
-          this.state.isConnecting = false;
-          this.resetConnectButton();
-          this.updateConnectionUI();
-        }
-      }, 10000);
-    } finally {
-      setTimeout(() => {
-        this._sseErrorHandling = false;
-      }, 5000);
-    }
-  }
-
-  startChatStream(jid) {
-    console.log('Starting chat stream for:', jid);
-
-    api.startChatStream(
-      jid,
-      (message) => {
-        console.log('Chat message received:', message);
-        this.appendMessageToChat(message);
-
-        if (this.state.unreadChats.has(jid)) {
-          this.state.unreadChats.delete(jid);
-          this.updateUnreadBadge();
-        }
-      },
-      (data) => {
-        console.log('Chat SSE init:', data);
-      },
-      (error) => {
-        console.error('Chat SSE error:', error);
-      }
-    );
-  }
-
-  stopChatStream() {
-    console.log('Stopping chat stream...');
-    api.stopChatStream();
-  }
-
-  appendMessageToChat(message) {
-    const messagesContainer = document.getElementById('chat-messages');
-    if (!messagesContainer) return;
-
-    const messageJid = message.from || message.jid;
-    const isOutgoing = message.fromMe === true || message.isFromMe === true;
-
-    const normalizeJid = (jid) => jid ? jid.split('@')[0].split(':')[0] : '';
-    const messageNumber = normalizeJid(messageJid);
-    const currentNumber = normalizeJid(this.state.currentChatJid);
-
-    if (!isOutgoing && messageNumber !== currentNumber) return;
-
-    const messageId = message.id || message.messageId;
-    if (messageId) {
-      const existingMsg = messagesContainer.querySelector(`[data-msg-id="${messageId}"]`);
-      if (existingMsg) {
-        console.log('Duplicate message ignored (ID match):', messageId);
-        return;
-      }
-    }
-
-    const content = message.content || message.message || message.body || '';
-    const timestamp = message.timestamp ? new Date(message.timestamp).getTime() : Date.now();
-    const time = new Date(timestamp).toLocaleTimeString('tr-TR', {
-      hour: '2-digit',
-      minute: '2-digit'
-    });
-
-    const recentMessages = messagesContainer.querySelectorAll('.message-bubble');
-    const recentArray = Array.from(recentMessages).slice(-10);
-    for (const recent of recentArray) {
-      const recentText = recent.querySelector('.message-text')?.textContent || '';
-      const recentIsOutgoing = recent.classList.contains('outgoing');
-      const recentTimestamp = parseInt(recent.dataset.timestamp || '0');
-
-      if (recentText === content &&
-          recentIsOutgoing === isOutgoing &&
-          Math.abs(timestamp - recentTimestamp) < 5000) {
-        console.log('Duplicate message ignored (content+time match)');
-        return;
-      }
-    }
-
-    const emptyState = messagesContainer.querySelector('.chats-empty');
-    if (emptyState) emptyState.remove();
-
-    const msgDiv = document.createElement('div');
-    msgDiv.className = `message-bubble ${isOutgoing ? 'outgoing' : 'incoming'}`;
-    if (messageId) msgDiv.setAttribute('data-msg-id', messageId);
-    msgDiv.setAttribute('data-timestamp', String(timestamp));
-
-    const msgType = message.type || 'text';
-    let isMedia = ['image', 'video', 'audio', 'document', 'sticker', 'ptt', 'location', 'liveLocation', 'vcard', 'contact', 'poll', 'event'].includes(msgType);
-
-    let effectiveMediaType = msgType;
-    if (!isMedia && content) {
-      const mediaTagMatch = content.match(/^\[(?:Image|File|Video|Audio|Document|Sticker|Ptt|Media|Location|Live Location|Contact|Poll|Event|\d+\s*Contact)]$/i);
-      if (mediaTagMatch) {
-        isMedia = true;
-        const tagMap = { 'IMAGE': 'image', 'FILE': 'document', 'VIDEO': 'video', 'AUDIO': 'audio', 'DOCUMENT': 'document', 'STICKER': 'sticker', 'PTT': 'ptt', 'MEDIA': 'image', 'LOCATION': 'location', 'LIVE LOCATION': 'liveLocation', 'CONTACT': 'vcard', 'POLL': 'poll', 'EVENT': 'event' };
-        effectiveMediaType = tagMap[mediaTagMatch[1].toUpperCase()] || 'image';
-      }
-    }
-
-    if (!isMedia && !content.trim()) {
-      return;
-    }
-
-    if (isMedia) {
-      const mediaLabels = {
-        'image': { icon: 'fa-image', label: 'Fotoğraf' },
-        'video': { icon: 'fa-video', label: 'Video' },
-        'audio': { icon: 'fa-headphones', label: 'Ses Mesajı' },
-        'ptt': { icon: 'fa-microphone', label: 'Sesli Mesaj' },
-        'document': { icon: 'fa-file-alt', label: 'Belge' },
-        'sticker': { icon: 'fa-sticky-note', label: 'Çıkartma' },
-        'location': { icon: 'fa-map-marker-alt', label: 'Konum' },
-        'liveLocation': { icon: 'fa-street-view', label: 'Canlı Konum' },
-        'vcard': { icon: 'fa-address-card', label: 'Kişi' },
-        'contact': { icon: 'fa-address-card', label: 'Kişi' },
-        'poll': { icon: 'fa-poll', label: 'Anket' },
-        'event': { icon: 'fa-calendar-check', label: 'Etkinlik' }
-      };
-      const media = mediaLabels[effectiveMediaType] || mediaLabels[msgType] || { icon: 'fa-file', label: 'Dosya' };
-
-      msgDiv.innerHTML = `
-        <div class="media-placeholder">
-          <div class="media-placeholder-icon"><i class="fas ${media.icon}"></i></div>
-          <div class="media-placeholder-info">
-            <span class="media-placeholder-label">${media.label}</span>
-            <span class="media-placeholder-hint"><i class="fas fa-lock"></i> Daha fazla gizlilik için bu mesajı yalnızca telefonunuzdan açabilirsiniz.</span>
-          </div>
-        </div>
-        <div class="message-meta">
-          <span class="message-time">${time}</span>
-          ${isOutgoing ? `<span class="message-status"><i class="fas fa-check"></i></span>` : ''}
-        </div>
-      `;
-    } else {
-      msgDiv.innerHTML = `
-        <div class="message-text">${utils.escapeHtml(content)}</div>
-        <div class="message-meta">
-          <span class="message-time">${time}</span>
-          ${isOutgoing ? `<span class="message-status"><i class="fas fa-check"></i></span>` : ''}
-        </div>
-      `;
-    }
-
-    messagesContainer.appendChild(msgDiv);
-    messagesContainer.scrollTop = messagesContainer.scrollHeight;
-
-    if (!isOutgoing && this.state.currentChatJid) {
-      api.markAsRead(this.state.currentChatJid).catch(err => {
-        console.log('Failed to mark as read:', err);
-      });
-    }
-  }
-
-  updateUnreadBadge() {
-    const count = this.state.unreadChats.size;
-    const badge = document.getElementById('nav-unread-badge');
-    const filterBadge = document.getElementById('unread-count');
-
-    if (count > 0) {
-      if (badge) {
-        badge.textContent = count > 99 ? '99+' : count;
-        badge.classList.remove('hidden');
-      }
-      if (filterBadge) {
-        filterBadge.textContent = count;
-        filterBadge.classList.remove('hidden');
-      }
-    } else {
-      if (badge) badge.classList.add('hidden');
-      if (filterBadge) filterBadge.classList.add('hidden');
+      utils.toast('Yeniden bağlanma başlatılamadı', 'error');
     }
   }
 }

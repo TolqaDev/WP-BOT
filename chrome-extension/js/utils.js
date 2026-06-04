@@ -248,8 +248,9 @@ const utils = {
   },
 
   getMinScheduleDate() {
+    // Geçmiş/çok yakın saat seçilmesin: en erken "şu an + 10 dk".
     const date = new Date();
-    date.setMinutes(date.getMinutes() + 1);
+    date.setMinutes(date.getMinutes() + 10);
     return this.toLocalISOString(date);
   },
 

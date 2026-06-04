@@ -50,26 +50,6 @@
           "response": []
         },
         {
-          "name": "Stream Messages (SSE)",
-          "request": {
-            "method": "GET",
-            "header": [],
-            "url": { "raw": "{{baseUrl}}/api/messages/stream", "host": ["{{baseUrl}}"], "path": ["api", "messages", "stream"] },
-            "description": "Gelen mesajları SSE ile gerçek zamanlı dinler.\n\nWhatsApp bağlı değilse 503 döner.\n\nEvents: init, message, sent, connected, disconnected, reconnecting, heartbeat"
-          },
-          "response": []
-        },
-        {
-          "name": "Stream Messages (Filtered by JID)",
-          "request": {
-            "method": "GET",
-            "header": [],
-            "url": { "raw": "{{baseUrl}}/api/messages/stream?jid={{testPhoneNumber}}", "host": ["{{baseUrl}}"], "path": ["api", "messages", "stream"], "query": [{ "key": "jid", "value": "{{testPhoneNumber}}" }] },
-            "description": "Belirli numaradan gelen mesajları gerçek zamanlı dinler. WhatsApp bağlı değilse 503 döner."
-          },
-          "response": []
-        },
-        {
           "name": "Stream Terminal Logs (SSE)",
           "request": {
             "method": "GET",
@@ -143,6 +123,16 @@
             "description": "Devam eden bağlantı girişimini iptal eder. Sadece isConnecting=true iken çalışır."
           },
           "response": []
+        },
+        {
+          "name": "Reconnect (Encryption Recovery)",
+          "request": {
+            "method": "POST",
+            "header": [],
+            "url": { "raw": "{{baseUrl}}/api/auth/reconnect", "host": ["{{baseUrl}}"], "path": ["api", "auth", "reconnect"] },
+            "description": "Oturumu silmeden soketi kapatıp yeniden bağlanır. 'Mesaj bekleniyor' / şifreleme sorunlarında önerilen çözüm. Genelde QR gerekmez."
+          },
+          "response": []
         }
       ]
     },
@@ -205,66 +195,6 @@
           "response": []
         },
         {
-          "name": "Get All Chats",
-          "request": {
-            "method": "GET",
-            "header": [],
-            "url": { "raw": "{{baseUrl}}/api/messages/chats", "host": ["{{baseUrl}}"], "path": ["api", "messages", "chats"] },
-            "description": "Tüm sohbetleri listeler. Filtreler: archived, unread, read, countryCode, search, sortBy, sortOrder, page, limit"
-          },
-          "response": []
-        },
-        {
-          "name": "Get All Chats (Filtered)",
-          "request": {
-            "method": "GET",
-            "header": [],
-            "url": { "raw": "{{baseUrl}}/api/messages/chats?unread=true&countryCode=90&sortBy=lastMessage&page=1&limit=20", "host": ["{{baseUrl}}"], "path": ["api", "messages", "chats"], "query": [{ "key": "unread", "value": "true" }, { "key": "countryCode", "value": "90" }, { "key": "sortBy", "value": "lastMessage" }, { "key": "page", "value": "1" }, { "key": "limit", "value": "20" }] },
-            "description": "Filtre parametreleri ile sohbetleri listeler."
-          },
-          "response": []
-        },
-        {
-          "name": "Get Message History",
-          "request": {
-            "method": "GET",
-            "header": [],
-            "url": { "raw": "{{baseUrl}}/api/messages/history/{{testPhoneNumber}}@s.whatsapp.net?limit=50&page=1", "host": ["{{baseUrl}}"], "path": ["api", "messages", "history", "{{testPhoneNumber}}@s.whatsapp.net"], "query": [{ "key": "limit", "value": "50" }, { "key": "page", "value": "1" }] },
-            "description": "Mesaj geçmişini sayfalama ile getirir."
-          },
-          "response": []
-        },
-        {
-          "name": "Get Chat Stats",
-          "request": {
-            "method": "GET",
-            "header": [],
-            "url": { "raw": "{{baseUrl}}/api/messages/stats", "host": ["{{baseUrl}}"], "path": ["api", "messages", "stats"] },
-            "description": "Sohbet ve zamanlanmış mesaj istatistiklerini getirir."
-          },
-          "response": []
-        },
-        {
-          "name": "Check Number on WhatsApp",
-          "request": {
-            "method": "GET",
-            "header": [],
-            "url": { "raw": "{{baseUrl}}/api/messages/check/{{testPhoneNumber}}", "host": ["{{baseUrl}}"], "path": ["api", "messages", "check", "{{testPhoneNumber}}"] },
-            "description": "Numaranın WhatsApp'ta kayıtlı olup olmadığını kontrol eder. Bağlantı gerekli."
-          },
-          "response": []
-        },
-        {
-          "name": "Get Profile Info",
-          "request": {
-            "method": "GET",
-            "header": [],
-            "url": { "raw": "{{baseUrl}}/api/messages/profile/{{testPhoneNumber}}", "host": ["{{baseUrl}}"], "path": ["api", "messages", "profile", "{{testPhoneNumber}}"] },
-            "description": "Kişinin profil bilgilerini getirir. Bağlantı gerekli."
-          },
-          "response": []
-        },
-        {
           "name": "Send Typing Indicator",
           "request": {
             "method": "POST",
@@ -272,36 +202,6 @@
             "body": { "mode": "raw", "raw": "{\n  \"duration\": 3000\n}" },
             "url": { "raw": "{{baseUrl}}/api/messages/typing/{{testPhoneNumber}}", "host": ["{{baseUrl}}"], "path": ["api", "messages", "typing", "{{testPhoneNumber}}"] },
             "description": "Yazıyor... göstergesi gönderir. Bağlantı gerekli."
-          },
-          "response": []
-        },
-        {
-          "name": "Mark as Read",
-          "request": {
-            "method": "POST",
-            "header": [],
-            "url": { "raw": "{{baseUrl}}/api/messages/read/{{testPhoneNumber}}", "host": ["{{baseUrl}}"], "path": ["api", "messages", "read", "{{testPhoneNumber}}"] },
-            "description": "Sohbeti okundu olarak işaretler. Bağlantı gerekli."
-          },
-          "response": []
-        },
-        {
-          "name": "Clear All Cache",
-          "request": {
-            "method": "DELETE",
-            "header": [],
-            "url": { "raw": "{{baseUrl}}/api/messages/cache", "host": ["{{baseUrl}}"], "path": ["api", "messages", "cache"] },
-            "description": "Tüm sohbet önbelleğini temizler."
-          },
-          "response": []
-        },
-        {
-          "name": "Clear Chat Cache",
-          "request": {
-            "method": "DELETE",
-            "header": [],
-            "url": { "raw": "{{baseUrl}}/api/messages/cache/:jid", "host": ["{{baseUrl}}"], "path": ["api", "messages", "cache", ":jid"], "variable": [{ "key": "jid", "value": "905551234567@s.whatsapp.net" }] },
-            "description": "Belirli bir sohbetin önbelleğini temizler."
           },
           "response": []
         }
@@ -504,7 +404,7 @@
           "request": {
             "method": "PUT",
             "header": [{ "key": "Content-Type", "value": "application/json" }],
-            "body": { "mode": "raw", "raw": "{\n  \"timezone\": \"Europe/Istanbul\",\n  \"autoRead\": false,\n  \"notify\": false,\n  \"callReject\": { \"enabled\": true },\n  \"cacheClearInterval\": 0\n}" },
+            "body": { "mode": "raw", "raw": "{\n  \"autoRead\": false,\n  \"notify\": false,\n  \"callReject\": { \"enabled\": true },\n  \"typingDuration\": 4000\n}" },
             "url": { "raw": "{{baseUrl}}/api/settings", "host": ["{{baseUrl}}"], "path": ["api", "settings"] },
             "description": "Ayarları günceller - anında geçerli olur ve .env dosyasına kalıcı yazılır."
           },

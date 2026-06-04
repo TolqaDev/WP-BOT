@@ -8,7 +8,8 @@ import logger from './utils/logger';
 import config from './config';
 
 const SERVER_CONFIG = {
-  JSON_LIMIT: '10mb',
+  // Toplu gönderimde 5 × 2MB dosya base64 (~13MB) sığsın diye yükseltildi.
+  JSON_LIMIT: '25mb',
   REQUEST_TIMEOUT_MS: 30000,
   KEEP_ALIVE_TIMEOUT_MS: 65000,
   HEADERS_TIMEOUT_MS: 66000,
