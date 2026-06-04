@@ -27,7 +27,7 @@
 |----------|-----------|
 | **Bağlantı** | QR veya telefon numarası (pairing kodu) ile oturum açma · Session persistence (PM2/restart sonrası otomatik bağlanma) · Otomatik arama reddi · Şifreleme hatası uyarısı + yeniden bağlanma |
 | **Mesajlaşma** | Text, resim, video, ses, doküman gönderimi · Çoklu dosya (maks 5, her biri ≤2MB) sürükle-bırak · Otomatik typing göstergesi (ENV) |
-| **Zamanlama** | İleri tarihe mesaj zamanlama · Düzenleme ve iptal · Addon'da en erken +10 dk kontrolü |
+| **Zamanlama** | İleri tarihe mesaj zamanlama · İki adımlı iptal→sil · Addon'da en erken +5 dk kontrolü |
 | **Toplu Gönderim** | In-memory kuyruk sistemi · Numara doğrulama (geçersizleri ayıklama) · Rastgele gecikme (min/max) · Duraklat/Devam/İptal |
 | **Güvenlik** | API Key auth · Rate limiting · CORS · Grup koruması · Request tracing (X-Request-ID) |
 | **Gerçek Zamanlı** | SSE ile QR stream · Terminal log stream |
@@ -53,26 +53,26 @@ WhatsApp-BOT/
 │   │   ├── SettingsController.ts # Uygulama ayarları
 │   │   ├── StatsController.ts    # İstatistikler
 │   │   └── TerminalController.ts # Terminal log stream
-│   ├── services/
-│   │   ├── WhatsAppService.ts    # Baileys entegrasyonu
-│   │   ├── MessageService.ts     # Mesaj servisi & geçmiş
-│   │   ├── QueueService.ts       # Toplu gönderim kuyruğu
-│   │   ├── SchedulerService.ts   # Zamanlanmış mesaj motoru
-│   │   └── SettingsService.ts    # Ayar yönetimi
+│   ├── services/                 # Tüm singleton'lar (getInstance + default export)
+│   │   ├── WhatsAppService.ts    # Tek Baileys soketi: QR/pairing, reconnect, messageCache
+│   │   ├── MessageService.ts     # Birleşik gönderim hattı (bağlantı bekleme + retry + typing)
+│   │   ├── QueueService.ts       # Toplu gönderim kuyruğu (RAM)
+│   │   ├── SchedulerService.ts   # Zamanlanmış mesaj motoru (RAM)
+│   │   └── SettingsService.ts    # Çalışma-zamanı ayarları (.env'e yazar)
 │   ├── middlewares/
-│   │   ├── auth.ts               # API Key doğrulama
-│   │   ├── connectionGuard.ts    # WhatsApp bağlantı kontrolü
-│   │   ├── errorHandler.ts       # Global hata yakalama
-│   │   ├── rateLimiter.ts        # Rate limiting
-│   │   └── sseGuard.ts           # SSE CORS kontrolü
+│   │   ├── auth.ts               # X-API-Key doğrulama (boşsa wba_ otomatik üretir)
+│   │   ├── connectionGuard.ts    # requireConnection — bağlı değilse 503
+│   │   ├── errorHandler.ts       # Global hata yakalama + asyncHandler
+│   │   └── rateLimiter.ts        # Rate limiting
 │   ├── routes/
 │   │   └── index.ts              # Tüm API rotaları
 │   ├── types/
 │   │   └── index.ts              # TypeScript tipleri
 │   ├── views/
-│   │   └── ResponseFormatter.ts  # Standart JSON response
+│   │   └── ResponseFormatter.ts  # Standart JSON response (her yanıt buradan)
 │   └── utils/
-│       └── logger.ts             # Pino logger
+│       ├── jid.ts                # formatJid / isGroupJid (ortak numara normalizasyonu)
+│       └── logger.ts             # Pino logger + logEventBus (terminal SSE)
 │
 ├── chrome-extension/             # Chrome Addon
 │   ├── manifest.json             # Manifest V3
@@ -86,8 +86,22 @@ WhatsApp-BOT/
 │   └── icons/                    # Extension ikonları
 │
 ├── postman/                      # Postman Collection & Environment
-└── public/                       # Statik dosyalar
+└── public/                       # Statik dosyalar (auth_info oturumu, qr.png)
 ```
+
+### İstek akışı & desenler
+
+`routes → middlewares (auth + requireConnection) → controllers → services → WhatsAppService (Baileys soketi)`
+
+- **Katman sorumluluğu:** Controller'lar yalnız HTTP (doğrulama + `ResponseFormatter`); tüm WhatsApp/durum mantığı servislerde. Soketi yalnız `WhatsAppService` çağırır.
+- **Tek gönderim hattı:** Hem anlık hem zamanlı gönderim `MessageService.sendMessage()` üzerinden gider (bağlantı bekleme + yeniden deneme + otomatik "yazıyor"). "Yazıyor" süresi **daima** ENV `TYPING_DURATION`'dan gelir.
+- **Singleton servisler:** `export default X.getInstance()` — `new` kullanılmaz, default import edilir.
+- **"Mesaj bekleniyor" / retry:** `WhatsAppService.messageCache` (id→mesaj) reconnect'te SIFIRLANMAZ (yalnız logout'ta). Kısa sürede çok sayıda retry-receipt → `encryptionAlert` (→ `/auth/status`, çözüm `POST /auth/reconnect`).
+- **Durum RAM'de:** Kuyruk/zamanlı mesajlar bellekte tutulur (DB yok) → restart'ta sıfırlanır. WhatsApp oturumu `public/auth_info`'da kalıcıdır.
+- **Sohbet/inbox yok:** Gelen mesaj takibi/geçmiş kaldırıldı; `syncFullHistory:false` + `shouldSyncHistoryMessage:()=>false` (geçmiş senkronu kapalı).
+- **NOTIFY:** `false` → cihaz offline işaretlenir, bildirim **telefona** gider; `true` → uygulama alır. Panelden değişince anında uygulanır.
+
+> Daha fazla AI-ajan rehberi için bkz. **[AGENTS.md](AGENTS.md)**.
 
 ---
 
@@ -140,9 +154,12 @@ TZ=Europe/Istanbul
 
 # WhatsApp Davranışı
 AUTO_READ=true
+# NOTIFY=false → cihaz offline görünür, bildirimler TELEFONA gider (önerilen)
+# NOTIFY=true  → cihaz online, bildirimleri uygulama alır (telefon almaz)
 NOTIFY=false
 AUTO_REJECT_CALLS=true
-# Mesaj öncesi "yazıyor..." süresi (ms). 0 = kapalı. Addon panelinden de düzenlenir.
+# Mesaj öncesi "yazıyor..." süresi (ms). 0 = kapalı. Tekil/zamanlı gönderimde
+# DAİMA bu değer kullanılır (istek gövdesindeki typingDuration yok sayılır).
 TYPING_DURATION=4000
 
 # Kuyruk
@@ -153,10 +170,10 @@ QUEUE_MAX_RETRY=3
 RATE_LIMIT_WINDOW_MS=60000
 RATE_LIMIT_MAX_REQUESTS=100
 
-# CORS Whitelist
-CORS_WHITE_LIST="::1, ::ffff:127.0.0.1"
+# CORS (virgülle ayrılmış origin listesi veya * — chrome extension için * önerilir)
+CORS_ORIGIN=*
 
-# API Key (boş bırakılırsa otomatik oluşturulur)
+# API Key (boş bırakılırsa wba_ önekli anahtar otomatik üretilir ve loglanır)
 API_KEY=
 ```
 
@@ -195,6 +212,7 @@ Tüm yanıtlar standart formatta döner:
 | `GET` | `/api/auth/qr` | QR kodu al (base64) |
 | `GET` | `/api/auth/qr/image` | QR kodu PNG olarak al |
 | `GET` | `/api/auth/qr/stream` | 🔴 SSE — QR akışı (real-time) |
+| `POST` | `/api/auth/pairing-code` | Telefon numarası ile bağlanma kodu al (`{phoneNumber}`) |
 | `GET` | `/api/auth/status` | Bağlantı durumu (+ `encryptionAlert`) |
 | `POST` | `/api/auth/logout` | Oturumu kapat ve session'ı sil |
 | `POST` | `/api/auth/cancel` | Bağlanma girişimini iptal et |
@@ -215,7 +233,8 @@ Tüm yanıtlar standart formatta döner:
 | `GET` | `/api/messages/scheduled` | Zamanlanmış mesajları listele |
 | `GET` | `/api/messages/scheduled/:id` | Tekil detay |
 | `PUT` | `/api/messages/scheduled/:id` | Düzenle |
-| `DELETE` | `/api/messages/scheduled/:id` | İptal et |
+| `POST` | `/api/messages/scheduled/:id/cancel` | Bekleyen mesajı iptal et (listede kalır) |
+| `DELETE` | `/api/messages/scheduled/:id` | Listeden sil (bekleyen ise önce iptal gerekir) |
 | `DELETE` | `/api/messages/scheduled/completed` | Tamamlanmışları temizle |
 
 ### Toplu Mesaj
@@ -254,16 +273,11 @@ Tüm yanıtlar standart formatta döner:
 ### Mesaj Gönderme
 
 ```bash
-# Text mesaj (otomatik typing göstergesi ile)
+# Text mesaj (gönderim öncesi "yazıyor" süresi ENV TYPING_DURATION'dan gelir)
 curl -X POST http://localhost:3000/api/messages/send \
   -H "Content-Type: application/json" \
   -H "X-API-Key: YOUR_KEY" \
   -d '{"jid": "905551234567", "message": "Merhaba!"}'
-
-# Özel typing süresi (5 saniye)
-curl -X POST http://localhost:3000/api/messages/send \
-  -H "Content-Type: application/json" \
-  -d '{"jid": "905551234567", "message": "Merhaba!", "typingDuration": 5000}'
 
 # Resim gönder (URL ile)
 curl -X POST http://localhost:3000/api/messages/send \

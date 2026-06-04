@@ -161,10 +161,6 @@
           <!-- Tab: Add Server -->
           <div class="modal-tab-content" id="modal-tab-add-server">
             <div class="modal-body">
-              <div class="modal-add-header">
-                <div class="modal-add-icon"><i class="fas fa-plus-circle"></i></div>
-                <p class="modal-add-desc">Yeni bir WhatsApp BOT sunucusu ekleyin</p>
-              </div>
               <div class="field">
                 <label for="api-url"><i class="fas fa-server"></i> Sunucu Adresi</label>
                 <input type="text" id="api-url" placeholder="http://localhost:3000" spellcheck="false">
@@ -200,7 +196,9 @@
                 <div class="form-section"><label><i class="fas fa-file-alt"></i> Tip</label><div class="type-selector"><button type="button" class="type-option active" data-type="text"><i class="fas fa-font"></i></button><button type="button" class="type-option" data-type="image"><i class="fas fa-image"></i></button><button type="button" class="type-option" data-type="video"><i class="fas fa-video"></i></button><button type="button" class="type-option" data-type="document"><i class="fas fa-file"></i></button></div></div>
                 <div class="form-section" id="single-text-section"><label><i class="fas fa-comment"></i> Mesaj <span class="label-count">(<span id="single-char-count">0</span> kr)</span></label><textarea id="single-message" rows="3" placeholder="Mesajınızı yazın..."></textarea></div>
                 <div class="form-section hidden" id="single-media-section">
-                  <label><i class="fas fa-paperclip"></i> Medya</label>
+                  <label><i class="fas fa-comment-dots"></i> Açıklama <span class="label-hint">(medya ile birlikte gönderilir)</span></label>
+                  <input type="text" id="single-caption" placeholder="Açıklama (opsiyonel)">
+                  <label class="media-sub-label"><i class="fas fa-paperclip"></i> Dosya</label>
                   <div class="media-dropzone" id="single-dropzone">
                     <input type="file" id="single-file-input" class="hidden" multiple accept="image/*,video/*,application/pdf,.doc,.docx,.xls,.xlsx,.zip">
                     <div class="media-dropzone-empty" id="single-dropzone-empty">
@@ -210,10 +208,12 @@
                     </div>
                     <div class="media-file-list hidden" id="single-file-list"></div>
                   </div>
-                  <div class="media-or"><span>veya URL</span></div>
-                  <input type="text" id="single-media-url" placeholder="https://...">
-                  <input type="text" id="single-caption" placeholder="Açıklama (opsiyonel)" class="mt-1">
+                  <div class="media-url-section" id="single-url-section">
+                    <div class="media-or"><span>veya URL ile</span></div>
+                    <input type="text" id="single-media-url" placeholder="https://...">
+                  </div>
                 </div>
+                <button type="button" class="btn btn-outline btn-block btn-sm cache-restore-btn hidden" id="single-cache-btn"><i class="fas fa-clock-rotate-left"></i> Son Gönderimi Yükle</button>
                 <button type="button" class="btn btn-primary btn-block btn-send" id="single-send-btn"><i class="fas fa-paper-plane"></i> Gönder</button>
               </div>
               <div class="messaging-form hidden" id="bulk-message-form">
@@ -223,7 +223,9 @@
                 <div class="form-section"><label><i class="fas fa-file-alt"></i> Tip</label><div class="type-selector"><button type="button" class="type-option active" data-bulk-type="text"><i class="fas fa-font"></i></button><button type="button" class="type-option" data-bulk-type="image"><i class="fas fa-image"></i></button><button type="button" class="type-option" data-bulk-type="video"><i class="fas fa-video"></i></button><button type="button" class="type-option" data-bulk-type="document"><i class="fas fa-file"></i></button></div><input type="hidden" id="bulk-type" value="text"></div>
                 <div class="form-section" id="bulk-text-group"><label><i class="fas fa-comment"></i> Mesaj <span class="label-count">(<span id="bulk-char-count">0</span> kr)</span></label><textarea id="bulk-message" rows="2" placeholder="Mesajınızı yazın..."></textarea></div>
                 <div class="form-section hidden" id="bulk-media-group">
-                  <label><i class="fas fa-paperclip"></i> Medya</label>
+                  <label><i class="fas fa-comment-dots"></i> Açıklama <span class="label-hint">(medya ile birlikte gönderilir)</span></label>
+                  <input type="text" id="bulk-caption" placeholder="Açıklama (opsiyonel)">
+                  <label class="media-sub-label"><i class="fas fa-paperclip"></i> Dosya</label>
                   <div class="media-dropzone" id="bulk-dropzone">
                     <input type="file" id="bulk-file-input" class="hidden" multiple accept="image/*,video/*,application/pdf,.doc,.docx,.xls,.xlsx,.zip">
                     <div class="media-dropzone-empty" id="bulk-dropzone-empty">
@@ -233,10 +235,12 @@
                     </div>
                     <div class="media-file-list hidden" id="bulk-file-list"></div>
                   </div>
-                  <div class="media-or"><span>veya URL</span></div>
-                  <input type="text" id="bulk-media-url" placeholder="https://...">
-                  <input type="text" id="bulk-caption" placeholder="Açıklama" class="mt-1">
+                  <div class="media-url-section" id="bulk-url-section">
+                    <div class="media-or"><span>veya URL ile</span></div>
+                    <input type="text" id="bulk-media-url" placeholder="https://...">
+                  </div>
                 </div>
+                <button type="button" class="btn btn-outline btn-block btn-sm cache-restore-btn hidden" id="bulk-cache-btn"><i class="fas fa-clock-rotate-left"></i> Son Gönderimi Yükle</button>
                 <button type="button" class="btn btn-primary btn-block btn-send" id="bulk-send-btn"><i class="fas fa-rocket"></i> Toplu Gönderimi Başlat</button>
               </div>
             </div>

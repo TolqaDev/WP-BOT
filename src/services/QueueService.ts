@@ -3,6 +3,7 @@ import { randomUUID } from 'crypto';
 import config from '../config';
 import logger from '../utils/logger';
 import whatsAppService from './WhatsAppService';
+import settingsService from './SettingsService';
 import { formatJid } from '../utils/jid';
 import type {
   QueueItem,
@@ -26,7 +27,6 @@ interface QueueEvents {
   itemFailed: (jobId: string, item: QueueItem) => void;
 }
 
-const DEFAULT_TYPING_DURATION = 3000;
 const DEFAULT_MIN_DELAY = 5000;
 const DEFAULT_MAX_DELAY = 10000;
 const MIN_ALLOWED_DELAY = 2000;
@@ -117,7 +117,8 @@ class QueueService extends EventEmitter {
       caption: payload.caption,
       fileName: payload.fileName,
       mimetype: payload.mimetype,
-      typingDuration: payload.typingDuration ?? DEFAULT_TYPING_DURATION,
+      // Tekil gönderimle AYNI "yazıyor" süresi: addon/ENV (TYPING_DURATION).
+      typingDuration: settingsService.typingDuration,
       minDelay: Math.max(payload.minDelay ?? DEFAULT_MIN_DELAY, MIN_ALLOWED_DELAY),
       maxDelay: Math.max(payload.maxDelay ?? DEFAULT_MAX_DELAY, MIN_ALLOWED_DELAY),
       totalCount: items.length,

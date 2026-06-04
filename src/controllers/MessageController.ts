@@ -224,7 +224,7 @@ export class MessageController {
     }
   }
 
-  /** DELETE /api/messages/scheduled/:id */
+  /** POST /api/messages/scheduled/:id/cancel — bekleyen zamanlı mesajı iptal eder (listede kalır) */
   public cancelScheduledMessage(req: Request, res: Response): void {
     try {
       const cancelled = schedulerService.cancelScheduledMessage(req.params.id as string);
@@ -232,6 +232,22 @@ export class MessageController {
     } catch (error) {
       const message = error instanceof Error ? error.message : 'İptal başarısız';
       logger.error({ error }, 'Failed to cancel scheduled message');
+      res.status(400).json(ResponseFormatter.badRequest(message));
+    }
+  }
+
+  /** DELETE /api/messages/scheduled/:id — iptal edilmiş/tamamlanmış mesajı listeden siler (bekleyen ise önce iptal gerekir) */
+  public deleteScheduledMessage(req: Request, res: Response): void {
+    try {
+      const deleted = schedulerService.deleteScheduledMessage(req.params.id as string);
+      if (!deleted) {
+        res.status(404).json(ResponseFormatter.notFound('Zamanlı mesaj bulunamadı'));
+        return;
+      }
+      res.status(200).json(ResponseFormatter.success({ id: req.params.id, deleted: true }, 'Zamanlı mesaj silindi'));
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Silme başarısız';
+      logger.error({ error }, 'Failed to delete scheduled message');
       res.status(400).json(ResponseFormatter.badRequest(message));
     }
   }

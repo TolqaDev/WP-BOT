@@ -177,7 +177,7 @@ class SchedulerService extends EventEmitter {
     }
 
     if (message.status === 'pending') {
-      throw new Error('Cancel the message first before deleting');
+      throw new Error('Önce mesajı iptal edin, sonra silebilirsiniz');
     }
 
     this.clearTimer(id);

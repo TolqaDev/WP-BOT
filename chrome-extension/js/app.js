@@ -22,7 +22,8 @@ class WhatsAppBOTApp {
       this.setupEventListeners();
       utils.initTooltips();
       await this.loadSettings();
-      await this.restoreLastUsed();
+      // Otomatik doldurma YOK; yalnız "Son Gönderimi Yükle" butonunu (cache varsa) göster.
+      this.updateCacheButtons();
 
       // Hiç sunucu yapılandırılmadıysa: hiçbir istek atma (gereksiz /auth/status
       // polling'i önlenir), kullanıcıyı sunucu eklemeye yönlendir.
@@ -50,12 +51,11 @@ class WhatsAppBOTApp {
           this.switchTab('messaging');
           this.updateApiStatusDot('connected');
         } else {
+          // Oturum açık değil: QR'ı OTOMATİK başlatma. Kullanıcı "Bağlantıyı
+          // Başlat"a basınca veya sunucu değiştirince manuel tetiklenir.
           this.showConnectionOverlay();
           this.updateApiStatusDot('connected');
-
-          if (this.state.isConnecting) {
-            this.connect();
-          }
+          this.resetConnectButton();
         }
       } catch (connectionError) {
         console.error('Initial connection check failed:', connectionError);
@@ -198,10 +198,8 @@ class WhatsAppBOTApp {
           const datetimeInput = document.getElementById('bulk-start-datetime');
           if (datetimeInput) {
             datetimeInput.min = utils.getMinScheduleDate();
-            const defaultDate = new Date();
-            defaultDate.setHours(defaultDate.getHours() + 1);
-            defaultDate.setMinutes(0);
-            datetimeInput.value = utils.toLocalISOString(defaultDate);
+            // Varsayılan: şu an + 10 dk (min sınırının güvenle üstünde).
+            datetimeInput.value = utils.toLocalISOString(new Date(Date.now() + 10 * 60000));
           }
         }
       });
@@ -212,11 +210,25 @@ class WhatsAppBOTApp {
     });
     document.getElementById('bulk-send-btn').addEventListener('click', () => this.handleBulkSend());
 
-    // Medya sürükle-bırak (Task 2)
+    // Medya sürükle-bırak
     this.setupDropzone('single');
     this.setupDropzone('bulk');
 
-    // Geçersiz numara popup'ı kapat (Task 1)
+    // Cache butonu: "Son Gönderimi Yükle" ↔ "Geçmiş Bilgisini Sıfırla" (iki durumlu)
+    document.getElementById('single-cache-btn')?.addEventListener('click', () => this.onCacheButton('single'));
+    document.getElementById('bulk-cache-btn')?.addEventListener('click', () => this.onCacheButton('bulk'));
+
+    // URL girilince dropzone, dosya eklenince URL gizlensin
+    document.getElementById('single-media-url')?.addEventListener('input', () => this.updateMediaExclusivity('single'));
+    document.getElementById('bulk-media-url')?.addEventListener('input', () => this.updateMediaExclusivity('bulk'));
+
+    // Zamanlı Mesajlar / Toplu Gönderimler — yenile & temizle
+    document.getElementById('refresh-scheduled')?.addEventListener('click', () => this.loadScheduledMessages());
+    document.getElementById('clear-completed-scheduled')?.addEventListener('click', () => this.clearCompletedScheduled());
+    document.getElementById('refresh-jobs')?.addEventListener('click', () => this.loadBulkJobs());
+    document.getElementById('clear-completed-bulk')?.addEventListener('click', () => this.clearCompletedBulk());
+
+    // Geçersiz numara popup'ı kapat
     document.getElementById('invalid-ok-btn')?.addEventListener('click', () => this.closeInvalidPopup());
     document.getElementById('invalid-backdrop')?.addEventListener('click', () => this.closeInvalidPopup());
   }
@@ -595,9 +607,8 @@ class WhatsAppBOTApp {
   exitPairingMode(cancelServer = false) {
     this.stopPairingStatusPoll();
 
-    // QR'a geçerken: sunucudaki pairing denemesini iptal et ki QR temiz başlasın
-    // (hata atmadan). Yalnız gerçekten kod istenmişse iptal et — QR sayacını
-    // gereksiz yere sıfırlamamak için (Task 2).
+    // QR'a geçerken sunucudaki pairing denemesini iptal et ki QR temiz başlasın
+    // (yalnız gerçekten kod istenmişse — QR sayacını boşuna sıfırlamamak için).
     if (cancelServer && this._pairingRequested) {
       api.cancelConnection().catch(() => { });
     }
@@ -1425,8 +1436,8 @@ class WhatsAppBOTApp {
     const url = document.getElementById('api-url').value.trim();
     const key = document.getElementById('api-key').value.trim();
 
-    if (!url) {
-      utils.toast('API URL gerekli', 'warning');
+    if (!url || !key) {
+      utils.toast('Sunucu adresi ve API anahtarı zorunludur', 'warning');
       return;
     }
 
@@ -1476,18 +1487,25 @@ class WhatsAppBOTApp {
   }
 
   async testConnection() {
+    // Kayıtlı sunucuyu değil, FORMDAKİ url+key'i test et.
+    const url = document.getElementById('api-url').value.trim();
+    const key = document.getElementById('api-key').value.trim();
+
+    if (!url || !key) {
+      utils.toast('Önce sunucu adresi ve API anahtarını girin', 'warning');
+      return;
+    }
+
     try {
       utils.setLoading('test-connection', true);
-      const response = await api.getStatus();
+      const ok = await api.testServer(url, key);
 
-      if (response.success) {
-        this.state.apiReady = true;
-        this.updateSidebarLock();
+      if (ok) {
         this.updateApiStatusDot('connected');
         utils.toast('Bağlantı başarılı!', 'success');
       } else {
         this.updateApiStatusDot('error');
-        utils.toast('Bağlantı başarısız', 'error');
+        utils.toast('Bağlantı başarısız (adres veya anahtar hatalı)', 'error');
       }
     } catch (error) {
       this.updateApiStatusDot('error');
@@ -1580,6 +1598,44 @@ class WhatsAppBOTApp {
 
     utils.toggle('single-message-form', type === 'single');
     utils.toggle('bulk-message-form', type === 'bulk');
+
+    // Tablar arası geçişte her iki formu da sıfırla (girilen veriler kalmasın).
+    this.resetMessagingForm('single');
+    this.resetMessagingForm('bulk');
+    this.updateCacheButtons();
+  }
+
+  /** Bir gönderim formunu (tekil/toplu) tüm alanlarıyla sıfırlar. */
+  resetMessagingForm(prefix) {
+    const setVal = (id, v = '') => { const el = document.getElementById(id); if (el) el.value = v; };
+    this.clearMedia(prefix);
+
+    if (prefix === 'single') {
+      setVal('single-recipient');
+      setVal('single-message');
+      setVal('single-caption');
+      setVal('single-media-url');
+      setVal('single-datetime');
+      const c = document.getElementById('single-char-count'); if (c) c.textContent = '0';
+      this.setSingleMessageType('text');
+      this.setScheduleMode('now');
+    } else {
+      setVal('bulk-recipients');
+      setVal('bulk-message');
+      setVal('bulk-caption');
+      setVal('bulk-media-url');
+      setVal('bulk-start-datetime');
+      setVal('bulk-min-delay', '3');
+      setVal('bulk-max-delay', '10');
+      const rc = document.getElementById('recipient-count'); if (rc) rc.textContent = '0';
+      const bc = document.getElementById('bulk-char-count'); if (bc) bc.textContent = '0';
+      this.setBulkMessageType('text');
+      const chk = document.getElementById('bulk-schedule-enabled'); if (chk) chk.checked = false;
+      utils.hide('bulk-schedule-datetime');
+      document.querySelectorAll('.schedule-option[data-bulk-schedule]').forEach(o => o.classList.remove('active'));
+      document.querySelector('.schedule-option[data-bulk-schedule="now"]')?.classList.add('active');
+    }
+    this.updateMediaExclusivity(prefix);
   }
 
   setScheduleMode(mode) {
@@ -1596,10 +1652,8 @@ class WhatsAppBOTApp {
       if (datetimeInput) {
         datetimeInput.min = utils.getMinScheduleDate();
         if (!datetimeInput.value) {
-          const defaultDate = new Date();
-          defaultDate.setHours(defaultDate.getHours() + 1);
-          defaultDate.setMinutes(0);
-          datetimeInput.value = utils.toLocalISOString(defaultDate);
+          // Varsayılan: şu an + 10 dk (min sınırının güvenle üstünde).
+          datetimeInput.value = utils.toLocalISOString(new Date(Date.now() + 10 * 60000));
         }
       }
     }
@@ -1648,9 +1702,9 @@ class WhatsAppBOTApp {
 
     if (isScheduled && datetime) {
       const scheduledTime = new Date(datetime);
-      const minTime = new Date(Date.now() + 10 * 60000);
+      const minTime = new Date(Date.now() + 5 * 60000);
       if (scheduledTime < minTime) {
-        utils.toast('Gönderim zamanı en az 10 dakika sonrası olmalıdır', 'warning');
+        utils.toast('Gönderim zamanı en az 5 dakika sonrası olmalıdır', 'warning');
         document.getElementById('single-datetime').min = utils.getMinScheduleDate();
         return;
       }
@@ -1717,17 +1771,16 @@ class WhatsAppBOTApp {
         ok === tasks.length ? 'success' : 'warning'
       );
 
-      this.saveLastUsed('single', { type, message, caption, mediaUrl: mediaList.length ? '' : mediaUrl });
-      document.getElementById('single-recipient').value = '';
-      document.getElementById('single-message').value = '';
-      const captionEl = document.getElementById('single-caption'); if (captionEl) captionEl.value = '';
-      const sc1 = document.getElementById('single-char-count'); if (sc1) sc1.textContent = '0';
-      this.clearMedia('single');
-      if (isScheduled) {
-        document.getElementById('single-datetime').value = '';
-        this.setScheduleMode('now');
-        this.loadScheduledMessages();
-      }
+      // Önce son gönderimi cache'e al + butonu göster, SONRA tüm alanı temizle.
+      this.saveLastUsed('single', {
+        recipient, type, message, caption,
+        mediaUrl: mediaList.length ? '' : mediaUrl,
+        scheduleMode: isScheduled ? 'later' : 'now',
+        datetime: isScheduled ? datetime : ''
+      });
+      this.updateCacheButton('single');
+      this.resetMessagingForm('single');
+      if (isScheduled) this.loadScheduledMessages();
     } catch (error) {
       const errorMsg = error.data?.error || error.data?.message || error.message || 'İşlem başarısız';
       utils.toast(errorMsg, 'error');
@@ -1747,7 +1800,7 @@ class WhatsAppBOTApp {
     utils.toggle('bulk-media-group', type !== 'text');
   }
 
-  // ─────────────── MEDYA SÜRÜKLE-BIRAK (Task 2) ───────────────
+  // ─────────────── MEDYA SÜRÜKLE-BIRAK ───────────────
 
   static MAX_FILES = 5;
   static MAX_FILE_SIZE = 2 * 1024 * 1024; // 2 MB
@@ -1844,6 +1897,7 @@ class WhatsAppBOTApp {
       if (empty) utils.show(empty);
       utils.hide(listEl);
       listEl.innerHTML = '';
+      this.updateMediaExclusivity(prefix);
       return;
     }
 
@@ -1870,6 +1924,8 @@ class WhatsAppBOTApp {
         this.renderMediaList(prefix);
       });
     });
+
+    this.updateMediaExclusivity(prefix);
   }
 
   clearMedia(prefix) {
@@ -1879,7 +1935,7 @@ class WhatsAppBOTApp {
     this.renderMediaList(prefix);
   }
 
-  // ─────────────── GEÇERSİZ NUMARA POPUP (Task 1) ───────────────
+  // ─────────────── GEÇERSİZ NUMARA POPUP ───────────────
 
   showInvalidNumbersPopup(numbers, allInvalid = false) {
     const backdrop = document.getElementById('invalid-backdrop');
@@ -1907,7 +1963,10 @@ class WhatsAppBOTApp {
     document.getElementById('invalid-dialog')?.classList.add('hidden');
   }
 
-  // ─────────────── SON KULLANILAN AYARLAR (Task 3) ───────────────
+  // ─────────────── SON GÖNDERİM CACHE'İ ───────────────
+  // Yalnız metin/ayar bilgileri saklanır (dosya/base64 ASLA). Gönderim sonrası
+  // "Son Gönderimi Yükle" butonu görünür; yükleyince buton "Geçmiş Bilgisini
+  // Sıfırla"ya döner (cache'i temizler).
 
   saveLastUsed(kind, data) {
     const key = `lastUsed_${kind}`;
@@ -1930,34 +1989,105 @@ class WhatsAppBOTApp {
     });
   }
 
-  async restoreLastUsed() {
-    const single = await this.getLastUsed('single');
-    if (single) {
-      if (single.type) this.setSingleMessageType(single.type);
-      if (single.message) {
-        const el = document.getElementById('single-message');
-        if (el) {
-          el.value = single.message;
-          const c = document.getElementById('single-char-count');
-          if (c) c.textContent = single.message.length;
-        }
+  clearLastUsed(kind) {
+    const key = `lastUsed_${kind}`;
+    if (typeof chrome !== 'undefined' && chrome.storage) {
+      chrome.storage.local.remove(key);
+    } else {
+      localStorage.removeItem(key);
+    }
+  }
+
+  async updateCacheButtons() {
+    this.updateCacheButton('single');
+    this.updateCacheButton('bulk');
+  }
+
+  /** Cache butonunu "yükle" durumuna getirir (cache varsa göster, yoksa gizle). */
+  async updateCacheButton(kind) {
+    const last = await this.getLastUsed(kind);
+    const btn = document.getElementById(`${kind}-cache-btn`);
+    if (!btn) return;
+    btn.classList.toggle('hidden', !last);
+    if (last) {
+      btn.dataset.state = 'load';
+      btn.innerHTML = '<i class="fas fa-clock-rotate-left"></i> Son Gönderimi Yükle';
+    } else {
+      delete btn.dataset.state;
+    }
+  }
+
+  /** Cache butonu tıklaması: durum 'load' ise yükle, 'reset' ise geçmişi sıfırla. */
+  onCacheButton(kind) {
+    const btn = document.getElementById(`${kind}-cache-btn`);
+    if (btn && btn.dataset.state === 'reset') {
+      this.clearLastUsed(kind);
+      this.resetMessagingForm(kind);
+      this.updateCacheButton(kind); // cache yok → buton gizlenir
+      utils.toast('Geçmiş gönderim bilgisi sıfırlandı', 'success');
+    } else {
+      this.fillFromLastUsed(kind);
+    }
+  }
+
+  /** Kaydedilen son gönderim bilgilerini (yalnız metin/ayar) forma doldurur. */
+  async fillFromLastUsed(kind) {
+    const data = await this.getLastUsed(kind);
+    if (!data) { utils.toast('Yüklenecek önceki gönderim yok', 'info'); return; }
+
+    if (kind === 'single') {
+      const set = (id, v) => { const el = document.getElementById(id); if (el) el.value = v || ''; };
+      set('single-recipient', data.recipient);
+      if (data.type) this.setSingleMessageType(data.type);
+      set('single-message', data.message);
+      const c = document.getElementById('single-char-count'); if (c) c.textContent = (data.message || '').length;
+      set('single-caption', data.caption);
+      set('single-media-url', data.mediaUrl);
+      // Zamanlama (tarih) ayarı da geri yüklenir.
+      if (data.scheduleMode === 'later' && data.datetime) {
+        this.setScheduleMode('later');
+        set('single-datetime', data.datetime);
+      } else {
+        this.setScheduleMode('now');
       }
-      if (single.caption) { const el = document.getElementById('single-caption'); if (el) el.value = single.caption; }
-      if (single.mediaUrl) { const el = document.getElementById('single-media-url'); if (el) el.value = single.mediaUrl; }
+      this.updateMediaExclusivity('single');
+    } else {
+      const set = (id, v) => { const el = document.getElementById(id); if (el) el.value = v || ''; };
+      if (data.recipients) { set('bulk-recipients', data.recipients); this.updateRecipientCount(data.recipients); }
+      if (data.type) this.setBulkMessageType(data.type);
+      set('bulk-message', data.message); this.updateBulkCharCount(data.message || '');
+      set('bulk-caption', data.caption);
+      set('bulk-media-url', data.mediaUrl);
+      if (typeof data.minDelay === 'number') set('bulk-min-delay', data.minDelay);
+      if (typeof data.maxDelay === 'number') set('bulk-max-delay', data.maxDelay);
+      // İleri tarihli zamanlama ayarı da geri yüklenir.
+      if (data.useSchedule && data.scheduleDateTime) {
+        const chk = document.getElementById('bulk-schedule-enabled'); if (chk) chk.checked = true;
+        utils.show('bulk-schedule-datetime');
+        document.querySelectorAll('.schedule-option[data-bulk-schedule]').forEach(o => o.classList.remove('active'));
+        document.querySelector('.schedule-option[data-bulk-schedule="later"]')?.classList.add('active');
+        set('bulk-start-datetime', data.scheduleDateTime);
+      }
+      this.updateMediaExclusivity('bulk');
     }
 
-    const bulk = await this.getLastUsed('bulk');
-    if (bulk) {
-      if (bulk.type) this.setBulkMessageType(bulk.type);
-      if (bulk.message) {
-        const el = document.getElementById('bulk-message');
-        if (el) { el.value = bulk.message; this.updateBulkCharCount(bulk.message); }
-      }
-      if (bulk.caption) { const el = document.getElementById('bulk-caption'); if (el) el.value = bulk.caption; }
-      if (bulk.mediaUrl) { const el = document.getElementById('bulk-media-url'); if (el) el.value = bulk.mediaUrl; }
-      if (typeof bulk.minDelay === 'number') { const el = document.getElementById('bulk-min-delay'); if (el) el.value = bulk.minDelay; }
-      if (typeof bulk.maxDelay === 'number') { const el = document.getElementById('bulk-max-delay'); if (el) el.value = bulk.maxDelay; }
+    // Yükledikten sonra buton "sıfırla" durumuna geçsin.
+    const btn = document.getElementById(`${kind}-cache-btn`);
+    if (btn) {
+      btn.dataset.state = 'reset';
+      btn.innerHTML = '<i class="fas fa-rotate-left"></i> Geçmiş Bilgisini Sıfırla';
     }
+    utils.toast('Son gönderim bilgileri yüklendi', 'success');
+  }
+
+  /** URL girilince dropzone, dosya eklenince URL bölümü gizlenir (karşılıklı). */
+  updateMediaExclusivity(prefix) {
+    const url = (document.getElementById(`${prefix}-media-url`)?.value || '').trim();
+    const hasFiles = (this.state[`${prefix}MediaList`] || []).length > 0;
+    const dropzone = document.getElementById(`${prefix}-dropzone`);
+    const urlSection = document.getElementById(`${prefix}-url-section`);
+    if (dropzone) dropzone.classList.toggle('hidden', !!url && !hasFiles);
+    if (urlSection) urlSection.classList.toggle('hidden', hasFiles);
   }
 
   updateRecipientCount(text) {
@@ -2000,9 +2130,9 @@ class WhatsAppBOTApp {
 
     if (useSchedule && scheduleDateTime) {
       const scheduledTime = new Date(scheduleDateTime);
-      const minTime = new Date(Date.now() + 10 * 60000);
+      const minTime = new Date(Date.now() + 5 * 60000);
       if (scheduledTime < minTime) {
-        utils.toast('Başlangıç zamanı en az 10 dakika sonrası olmalıdır', 'warning');
+        utils.toast('Başlangıç zamanı en az 5 dakika sonrası olmalıdır', 'warning');
         const dtInput = document.getElementById('bulk-start-datetime');
         if (dtInput) dtInput.min = utils.getMinScheduleDate();
         return;
@@ -2075,23 +2205,16 @@ class WhatsAppBOTApp {
           `Toplu gönderim başlatıldı (${validRecipients.length} alıcı)`;
         utils.toast(successMsg, 'success');
         this.saveLastUsed('bulk', {
+          recipients: recipientsText,
           type, message, caption,
           mediaUrl: mediaList.length ? '' : mediaUrl,
           minDelay: parseInt(document.getElementById('bulk-min-delay').value),
-          maxDelay: parseInt(document.getElementById('bulk-max-delay').value)
+          maxDelay: parseInt(document.getElementById('bulk-max-delay').value),
+          useSchedule: !!useSchedule,
+          scheduleDateTime: useSchedule ? scheduleDateTime : ''
         });
-        document.getElementById('bulk-recipients').value = '';
-        document.getElementById('bulk-message').value = '';
-        document.getElementById('recipient-count').textContent = '0';
-        document.getElementById('bulk-char-count').textContent = '0';
-        this.clearMedia('bulk');
-        const scheduleCheckbox = document.getElementById('bulk-schedule-enabled');
-        if (scheduleCheckbox) {
-          scheduleCheckbox.checked = false;
-          utils.hide('bulk-schedule-datetime');
-        }
-        document.querySelectorAll('.schedule-option[data-bulk-schedule]').forEach(o => o.classList.remove('active'));
-        document.querySelector('.schedule-option[data-bulk-schedule="now"]')?.classList.add('active');
+        this.updateCacheButton('bulk');
+        this.resetMessagingForm('bulk');
         await this.loadBulkJobs();
       }
     } catch (error) {
@@ -2382,6 +2505,9 @@ class WhatsAppBOTApp {
         container.querySelectorAll('[data-action="cancel-scheduled"]').forEach(btn => {
           btn.addEventListener('click', () => this.cancelScheduledMessage(btn.dataset.id));
         });
+        container.querySelectorAll('[data-action="delete-scheduled"]').forEach(btn => {
+          btn.addEventListener('click', () => this.deleteScheduledMessage(btn.dataset.id));
+        });
       } else {
         container.innerHTML = `
           <div class="status-empty">
@@ -2428,13 +2554,11 @@ class WhatsAppBOTApp {
           ${msg.error ? `<div class="scheduled-error"><i class="fas fa-exclamation-triangle"></i> Hata: ${utils.escapeHtml(msg.error)}</div>` : ''}
           ${msg.messageId ? `<div class="scheduled-msgid"><i class="fas fa-check"></i> ID: ${msg.messageId.substring(0, 12)}...</div>` : ''}
         </div>
-        ${msg.status === 'pending' ? `
-          <div class="job-actions">
-            <button class="btn btn-danger btn-sm" data-action="cancel-scheduled" data-id="${msg.id}">
-              <i class="fas fa-times"></i> İptal
-            </button>
-          </div>
-        ` : ''}
+        <div class="job-actions">
+          ${msg.status === 'pending'
+            ? `<button class="btn btn-danger btn-sm" data-action="cancel-scheduled" data-id="${msg.id}"><i class="fas fa-ban"></i> İptal</button>`
+            : `<button class="btn btn-secondary btn-sm" data-action="delete-scheduled" data-id="${msg.id}"><i class="fas fa-trash"></i> Sil</button>`}
+        </div>
       </div>
     `;
   }
@@ -2445,6 +2569,18 @@ class WhatsAppBOTApp {
     try {
       await api.cancelScheduledMessage(id);
       utils.toast('Zamanlı mesaj iptal edildi', 'success');
+      await this.loadScheduledMessages();
+    } catch (error) {
+      utils.toast(error.message, 'error');
+    }
+  }
+
+  async deleteScheduledMessage(id) {
+    if (!await utils.showConfirm('Zamanlı mesajı listeden silmek istiyor musunuz?')) return;
+
+    try {
+      await api.deleteScheduledMessage(id);
+      utils.toast('Zamanlı mesaj silindi', 'success');
       await this.loadScheduledMessages();
     } catch (error) {
       utils.toast(error.message, 'error');

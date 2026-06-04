@@ -48,6 +48,20 @@ class WhatsAppAPI {
     });
   }
 
+  // Verilen url+key ile (kayıtlı baseUrl'den BAĞIMSIZ) sunucuyu test eder.
+  async testServer(url, key) {
+    const base = (url || '').replace(/\/api\/?$/, '').replace(/\/+$/, '');
+    if (!base) return false;
+    try {
+      const res = await fetch(`${base}/api/auth/status`, {
+        headers: key ? { 'X-API-Key': key } : {},
+      });
+      return res.ok;
+    } catch {
+      return false;
+    }
+  }
+
   async getSettings() {
     return new Promise((resolve) => {
       chrome.storage.local.get(['apiUrl', 'apiKey'], (result) => {
@@ -423,6 +437,12 @@ class WhatsAppAPI {
   }
 
   async cancelScheduledMessage(id) {
+    return this.request(`/messages/scheduled/${id}/cancel`, {
+      method: 'POST'
+    });
+  }
+
+  async deleteScheduledMessage(id) {
     return this.request(`/messages/scheduled/${id}`, {
       method: 'DELETE'
     });

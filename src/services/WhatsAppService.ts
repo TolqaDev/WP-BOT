@@ -15,7 +15,7 @@ import sharp from 'sharp';
 import path from 'path';
 import fs from 'fs/promises';
 import config from '../config';
-import logger, { logEventBus } from '../utils/logger';
+import logger from '../utils/logger';
 import settingsService from './SettingsService';
 import { formatJid, isGroupJid } from '../utils/jid';
 import type {
@@ -52,18 +52,21 @@ class WhatsAppService extends EventEmitter {
   private readonly maxCachedMessages = 1000;
 
   /**
-   * Şifreleme/oturum sorunu takibi.
-   * Uygulama ile WhatsApp arasında şifreleme bozulduğunda mesajlar karşı tarafta
-   * "Mesaj bekleniyor, bu işlem biraz zaman alabilir" durumunda kalır. Bunu iki
-   * sinyalden algılarız: (1) Baileys'in çözme-hatası logları, (2) retry isteğine
-   * rağmen içeriği önbellekte bulamamamız (getMessage ıskası). Eşik aşılınca
-   * `encryptionAlert` true olur; ADDON bunu /auth/status ile görüp kalıcı uyarı
-   * gösterir. Çözüm: bağlantıyı yenilemek (reconnect).
+   * Şifreleme/oturum sorunu takibi — YALNIZCA botun gönderimini fiilen bozan
+   * durumda uyarı verir (false-positive üretmemek için dar tutuldu).
+   *
+   * Tek sinyal: alıcı, BİZİM gönderdiğimiz mesajı çözemeyip tekrar gönderim ister
+   * (retry-receipt → Baileys `getMessage(key.fromMe)` çağırır). Tek-tük retry
+   * normaldir (ağ gecikmesi); ama kısa sürede ÜST ÜSTE çok sayıda retry, karşı
+   * tarafın mesajlarımızı çözemediği = "Mesaj bekleniyor" sorununun göstergesidir.
+   * Sadece bu eşik (pencere içinde >= threshold) aşılınca `encryptionAlert` açılır;
+   * ADDON /auth/status ile görüp kalıcı uyarı + "Yeniden Bağlan" gösterir.
+   * (Gelen mesaj çözme hataları artık tetiklemez; Baileys onları kendi toparlar.)
    */
   private encryptionAlert = false;
   private encryptionIssueTimes: number[] = [];
   private readonly encryptionWindowMs = 120000; // 2 dk
-  private readonly encryptionThreshold = 3;
+  private readonly encryptionThreshold = 6;     // 2 dk içinde >=6 retry-receipt → gerçek sorun
 
   private state: SessionState = {
     isConnected: false,
@@ -104,22 +107,6 @@ class WhatsAppService extends EventEmitter {
     super();
     this.setMaxListeners(20);
     this.loadLogoCache();
-
-    // Baileys'in şifre çözme hatalarını loglardan yakala (sürümden bağımsız).
-    logEventBus.on('log', (entry: { level: string; message?: string; data?: unknown }) => {
-      if (entry.level !== 'error' && entry.level !== 'warn') return;
-      const text = `${entry.message || ''} ${entry.data ? JSON.stringify(entry.data) : ''}`.toLowerCase();
-      if (
-        text.includes('failed to decrypt') ||
-        text.includes('bad mac') ||
-        text.includes('no matching sessions') ||
-        text.includes('no session record') ||
-        text.includes('senderkeyrecord') ||
-        text.includes('decryptmessage')
-      ) {
-        this.recordEncryptionIssue('decrypt-log');
-      }
-    });
   }
 
   /**
@@ -242,11 +229,19 @@ class WhatsAppService extends EventEmitter {
 
       let { state: authState, saveCreds } = await useMultiFileAuthState(config.sessionPath);
 
-      // Yarım kalmış pairing creds'i (me var ama registered değil) hem QR'ı hem
-      // yeni pairing'i bozar (Baileys "login" node gönderir, "registration" değil).
-      // Pairing modunda DEĞİLSEK bu kirli creds'i temizleyip taze auth yükle.
-      if (!this.pairingPhone && authState.creds.me && !authState.creds.registered) {
-        logger.info('Incomplete pairing creds detected, resetting for fresh login');
+      // Yarım kalmış (terk edilmiş) pairing creds'i (me var ama registered değil)
+      // sonraki QR/pairing girişimini bozabilir. SADECE kullanıcının başlattığı
+      // TAZE bağlantıda temizle (reconnectAttempts === 0).
+      // ÖNEMLİ: Otomatik yeniden bağlanmada (özellikle QR taramasından sonra gelen
+      // 515 "restart required" akışında) bu temizliği YAPMA — yoksa geçerli bir
+      // oturum tam kurulurken silinip "oturum açılamıyor" döngüsüne girilir.
+      if (
+        !this.pairingPhone &&
+        this.reconnectAttempts === 0 &&
+        authState.creds.me &&
+        !authState.creds.registered
+      ) {
+        logger.info('Incomplete pairing creds detected on fresh connect, resetting for clean login');
         await this.clearSession();
         ({ state: authState, saveCreds } = await useMultiFileAuthState(config.sessionPath));
       }
@@ -267,7 +262,10 @@ class WhatsAppService extends EventEmitter {
         qrTimeout: this.qrLifetimeMs,
         logger,
         generateHighQualityLinkPreview: false,
-        markOnlineOnConnect: config.whatsapp.notify,
+        // NOTIFY=false → cihaz online işaretlenmez → bildirimler TELEFONA gider.
+        // NOTIFY=true  → cihaz online → bildirimleri uygulama alır, telefon almaz.
+        // Donmuş config yerine CANLI ayar (panelden değişince reconnect'te geçerli).
+        markOnlineOnConnect: settingsService.notify,
         // Geçmiş senkronu KAPALI: ne tam ne kısmi geçmiş çekilir. Yalnızca
         // bağlantı için gereken temel senkron yapılır. Bu, terminaldeki
         // "senkronizasyon" gürültüsünü/hatalarını ortadan kaldırır.
@@ -286,13 +284,13 @@ class WhatsAppService extends EventEmitter {
         getMessage: async (key) => {
           // Alıcı mesajı çözemezse retry-receipt gönderir; Baileys orijinal
           // içeriği buradan ister. id ile önbellekten veririz.
-          const cached = key.id ? this.messageCache.get(key.id) : undefined;
-          // İçerik elimizde yoksa karşı taraf "Mesaj bekleniyor"da kalır →
-          // şifreleme/oturum sorunu sinyali.
-          if (!cached && key.id) {
-            this.recordEncryptionIssue('getMessage-miss');
+          // BİZİM mesajımız (fromMe) için gelen her retry isteği "karşı taraf
+          // çözemedi" sinyalidir; kısa sürede üst üste çoğalırsa gerçek sorun
+          // (bkz. recordEncryptionIssue eşiği). Tek-tük retry uyarı üretmez.
+          if (key.fromMe) {
+            this.recordEncryptionIssue('resend-request');
           }
-          return cached || undefined;
+          return (key.id ? this.messageCache.get(key.id) : undefined) || undefined;
         },
       });
 
@@ -754,6 +752,24 @@ class WhatsAppService extends EventEmitter {
       }, 'WhatsApp feature settings');
 
       this.startNotifyReminder();
+      // NOTIFY tercihini sokete uygula (false → telefon bildirimi açık kalsın).
+      this.applyNotifyState();
+    }
+  }
+
+  /**
+   * NOTIFY ayarını canlı sokete uygular:
+   * - false → presence 'unavailable' (cihaz offline görünür → bildirimler TELEFONA gider)
+   * - true  → presence 'available'   (cihaz online → bildirimleri uygulama alır)
+   * Panelden NOTIFY değişince reconnect beklemeden hemen etki etmesi için de çağrılır.
+   */
+  public async applyNotifyState(): Promise<void> {
+    if (!this.socket || !this.state.isConnected) return;
+    try {
+      await this.socket.sendPresenceUpdate(settingsService.notify ? 'available' : 'unavailable');
+      logger.info({ notify: settingsService.notify }, 'Notify presence state applied');
+    } catch (error) {
+      logger.warn({ error }, 'Failed to apply notify presence state');
     }
   }
 

@@ -26,8 +26,9 @@ class MessageService {
 
   public async sendMessage(payload: SendMessagePayload): Promise<SendMessageResult> {
     const { jid, message, type = 'text', scheduledAt } = payload;
-    // Süre verilmediyse sunucu ayarından (ENV: TYPING_DURATION, varsayılan 4sn) al.
-    const typingDuration = payload.typingDuration ?? settingsService.typingDuration;
+    // "Yazıyor" süresi DAİMA sunucu ayarından (ENV: TYPING_DURATION) gelir;
+    // istek gövdesindeki olası typingDuration override edilmez (statik kural).
+    const typingDuration = settingsService.typingDuration;
 
     if (isGroupJid(jid) || isGroupJid(formatJid(jid))) {
       return { success: false, error: 'Gruplara mesaj gönderilemez' };
@@ -122,6 +123,12 @@ class MessageService {
             await this.waitForConnection(retryDelay * attempt);
             continue;
           }
+        }
+
+        // NOTIFY=false ise: "yazıyor" göstergesi cihazı 'online' yapmış olabilir.
+        // Telefon bildirimleri açık kalsın diye cihazı tekrar offline'a çek.
+        if (!settingsService.notify) {
+          whatsAppService.applyNotifyState().catch(() => { /* yok say */ });
         }
 
         return result;

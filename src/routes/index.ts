@@ -64,7 +64,8 @@ router.get('/messages/scheduled', messageController.getScheduledMessages.bind(me
 router.get('/messages/scheduled/:id', messageController.getScheduledMessage.bind(messageController));
 router.put('/messages/scheduled/:id', messageController.updateScheduledMessage.bind(messageController));
 router.delete('/messages/scheduled/completed', messageController.clearCompletedScheduled.bind(messageController));
-router.delete('/messages/scheduled/:id', messageController.cancelScheduledMessage.bind(messageController));
+router.post('/messages/scheduled/:id/cancel', messageController.cancelScheduledMessage.bind(messageController));
+router.delete('/messages/scheduled/:id', messageController.deleteScheduledMessage.bind(messageController));
 
 router.post(
   '/bulk/send',

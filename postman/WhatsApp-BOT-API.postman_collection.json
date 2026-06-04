@@ -144,7 +144,7 @@
           "request": {
             "method": "POST",
             "header": [{ "key": "Content-Type", "value": "application/json" }],
-            "body": { "mode": "raw", "raw": "{\n  \"jid\": \"{{testPhoneNumber}}\",\n  \"message\": \"Merhaba! Bu bir test mesajıdır.\",\n  \"typingDuration\": 3000\n}" },
+            "body": { "mode": "raw", "raw": "{\n  \"jid\": \"{{testPhoneNumber}}\",\n  \"message\": \"Merhaba! Bu bir test mesajıdır.\"\n}" },
             "url": { "raw": "{{baseUrl}}/api/messages/send", "host": ["{{baseUrl}}"], "path": ["api", "messages", "send"] },
             "description": "Text mesaj gönderir. Bağlantı gerekli."
           },
@@ -215,7 +215,7 @@
           "request": {
             "method": "POST",
             "header": [{ "key": "Content-Type", "value": "application/json" }],
-            "body": { "mode": "raw", "raw": "{\n  \"jid\": \"{{testPhoneNumber}}\",\n  \"message\": \"Bu zamanlanmış bir mesajdır!\",\n  \"typingDuration\": 3000,\n  \"scheduledAt\": \"2026-04-15T10:00:00.000Z\"\n}" },
+            "body": { "mode": "raw", "raw": "{\n  \"jid\": \"{{testPhoneNumber}}\",\n  \"message\": \"Bu zamanlanmış bir mesajdır!\",\n  \"scheduledAt\": \"2026-04-15T10:00:00.000Z\"\n}" },
             "url": { "raw": "{{baseUrl}}/api/messages/schedule", "host": ["{{baseUrl}}"], "path": ["api", "messages", "schedule"] },
             "description": "Mesajı ileri bir tarihe zamanlar. Bağlantı gerekli."
           },
@@ -255,10 +255,20 @@
         {
           "name": "Cancel Scheduled Message",
           "request": {
+            "method": "POST",
+            "header": [],
+            "url": { "raw": "{{baseUrl}}/api/messages/scheduled/:id/cancel", "host": ["{{baseUrl}}"], "path": ["api", "messages", "scheduled", ":id", "cancel"], "variable": [{ "key": "id", "value": "SCHEDULED_MESSAGE_ID" }] },
+            "description": "Bekleyen (pending) zamanlı mesajı iptal eder; mesaj listede 'cancelled' olarak kalır."
+          },
+          "response": []
+        },
+        {
+          "name": "Delete Scheduled Message",
+          "request": {
             "method": "DELETE",
             "header": [],
             "url": { "raw": "{{baseUrl}}/api/messages/scheduled/:id", "host": ["{{baseUrl}}"], "path": ["api", "messages", "scheduled", ":id"], "variable": [{ "key": "id", "value": "SCHEDULED_MESSAGE_ID" }] },
-            "description": "Zamanlanmış mesajı iptal eder."
+            "description": "İptal edilmiş/tamamlanmış zamanlı mesajı listeden siler. Bekleyen (pending) ise önce iptal edilmelidir."
           },
           "response": []
         },
@@ -284,7 +294,18 @@
             "header": [{ "key": "Content-Type", "value": "application/json" }],
             "body": { "mode": "raw", "raw": "{\n  \"recipients\": [\"905551111111\", \"905552222222\"],\n  \"message\": \"Toplu mesaj\",\n  \"minDelay\": 3000,\n  \"maxDelay\": 10000\n}" },
             "url": { "raw": "{{baseUrl}}/api/bulk/send", "host": ["{{baseUrl}}"], "path": ["api", "bulk", "send"] },
-            "description": "Toplu mesaj gönderir. Bağlantı gerekli."
+            "description": "Toplu mesaj gönderir. Bağlantı gerekli. Yazıyor süresi sunucu ayarından (TYPING_DURATION) gelir."
+          },
+          "response": []
+        },
+        {
+          "name": "Send Bulk Messages (multiple files)",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": { "mode": "raw", "raw": "{\n  \"recipients\": [\"905551111111\"],\n  \"caption\": \"Açıklama (ilk dosyaya eklenir)\",\n  \"mediaItems\": [\n    { \"type\": \"image\", \"mediaUrl\": \"https://example.com/1.jpg\" },\n    { \"type\": \"document\", \"mediaUrl\": \"https://example.com/2.pdf\", \"fileName\": \"belge.pdf\" }\n  ],\n  \"minDelay\": 3000,\n  \"maxDelay\": 10000\n}" },
+            "url": { "raw": "{{baseUrl}}/api/bulk/send", "host": ["{{baseUrl}}"], "path": ["api", "bulk", "send"] },
+            "description": "Her alıcıya birden fazla dosya (maks 5) sırayla gönderir. mediaUrl yerine mediaBase64 de kullanılabilir."
           },
           "response": []
         },

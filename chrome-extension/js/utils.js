@@ -248,9 +248,9 @@ const utils = {
   },
 
   getMinScheduleDate() {
-    // Geçmiş/çok yakın saat seçilmesin: en erken "şu an + 10 dk".
+    // Geçmiş/çok yakın saat seçilmesin: en erken "şu an + 5 dk".
     const date = new Date();
-    date.setMinutes(date.getMinutes() + 10);
+    date.setMinutes(date.getMinutes() + 5);
     return this.toLocalISOString(date);
   },
 
@@ -317,12 +317,17 @@ const utils = {
 
     if (loading) {
       button.disabled = true;
-      button.dataset.originalText = button.innerHTML;
+      // Orijinal metni YALNIZ ilk kez sakla; arka arkaya setLoading(true) çağrıları
+      // (örn. "kontrol ediliyor" → "başlatılıyor") gerçek metni ezmesin.
+      if (button.dataset.originalText === undefined) {
+        button.dataset.originalText = button.innerHTML;
+      }
       button.innerHTML = '<span class="spinner"></span> ' + (text || 'Yükleniyor...');
     } else {
       button.disabled = false;
-      if (button.dataset.originalText) {
+      if (button.dataset.originalText !== undefined) {
         button.innerHTML = button.dataset.originalText;
+        delete button.dataset.originalText;
       }
     }
   },

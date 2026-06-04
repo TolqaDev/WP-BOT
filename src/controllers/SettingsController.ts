@@ -1,5 +1,6 @@
 import { Request, Response } from 'express';
 import settingsService from '../services/SettingsService';
+import whatsAppService from '../services/WhatsAppService';
 import { ResponseFormatter } from '../views/ResponseFormatter';
 import logger from '../utils/logger';
 
@@ -56,6 +57,13 @@ export class SettingsController {
       const updatedSettings = settingsService.updateSettings({
         timezone, autoRead, notify, callReject, typingDuration,
       });
+
+      // NOTIFY değiştiyse canlı sokete hemen uygula (reconnect beklemeden):
+      // false → telefon bildirimi açık, true → uygulama alır.
+      if (notify !== undefined) {
+        whatsAppService.applyNotifyState().catch(() => { /* bağlı değilse yok say */ });
+      }
+
       const timeInfo = settingsService.getTimeInfo();
 
       res.status(200).json(
